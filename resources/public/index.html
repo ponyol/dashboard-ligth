@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Light - K8s Monitor</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: #1a237e;
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+
+        .theme-toggle {
+            background: none;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            grid-gap: 20px;
+            margin-top: 20px;
+        }
+
+        .sidebar {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+
+        .sidebar h2 {
+            font-size: 18px;
+            margin-top: 0;
+            margin-bottom: 16px;
+            color: #444;
+        }
+
+        .sidebar ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .sidebar li {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .sidebar li:last-child {
+            border-bottom: none;
+        }
+
+        .sidebar a {
+            text-decoration: none;
+            color: #333;
+            display: block;
+        }
+
+        .sidebar a:hover {
+            color: #1a237e;
+        }
+
+        .content {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+
+        .filters {
+            display: flex;
+            margin-bottom: 20px;
+            gap: 16px;
+        }
+
+        .filters select {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            min-width: 200px;
+        }
+
+        .deployments-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 16px;
+        }
+
+        .deployment-card {
+            background-color: #f0f8ff;
+            border-radius: 8px;
+            padding: 16px;
+            border-left: 5px solid #28a745;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .deployment-card.error {
+            border-left-color: #dc3545;
+            background-color: #fff0f0;
+        }
+
+        .deployment-card.warning {
+            border-left-color: #ffc107;
+            background-color: #fffbf0;
+        }
+
+        .deployment-card.idle {
+            border-left-color: #6c757d;
+            background-color: #f8f9fa;
+        }
+
+        .deployment-card h3 {
+            margin-top: 0;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+
+        .deployment-card p {
+            margin: 4px 0;
+            font-size: 14px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-top: 4px;
+            color: white;
+        }
+
+        .status-badge.success {
+            background-color: #28a745;
+        }
+
+        .status-badge.error {
+            background-color: #dc3545;
+        }
+
+        .status-badge.warning {
+            background-color: #ffc107;
+            color: #333;
+        }
+
+        .status-badge.idle {
+            background-color: #6c757d;
+        }
+
+        /* Dark theme */
+        body.dark-theme {
+            background-color: #1a1a1a;
+            color: #f0f0f0;
+        }
+
+        body.dark-theme header {
+            background-color: #121212;
+        }
+
+        body.dark-theme .sidebar,
+        body.dark-theme .content {
+            background-color: #2a2a2a;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        body.dark-theme .sidebar a {
+            color: #f0f0f0;
+        }
+
+        body.dark-theme .sidebar li {
+            border-bottom: 1px solid #3a3a3a;
+        }
+
+        body.dark-theme .deployment-card {
+            background-color: #333;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        body.dark-theme .deployment-card.error {
+            background-color: #3a2222;
+        }
+
+        body.dark-theme .deployment-card.warning {
+            background-color: #3a3022;
+        }
+
+        body.dark-theme .deployment-card.idle {
+            background-color: #2a2a2a;
+        }
+
+        body.dark-theme .sidebar h2,
+        body.dark-theme .sidebar a:hover {
+            color: #bb86fc;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Dashboard Light - K8s Monitor</h1>
+        <button class="theme-toggle">Toggle Dark Mode</button>
+    </header>
+
+    <div class="container">
+        <div class="dashboard">
+            <div class="sidebar">
+                <h2>Navigation</h2>
+                <ul>
+                    <li><a href="#" class="active">Status</a></li>
+                    <li><a href="#">Settings</a></li>
+                    <li><a href="#">Help</a></li>
+                </ul>
+            </div>
+
+            <div class="content">
+                <div class="filters">
+                    <select id="cluster-select">
+                        <option value="all">All Clusters</option>
+                        <option value="staging">Staging</option>
+                        <option value="production">Production</option>
+                    </select>
+
+                    <select id="namespace-select">
+                        <option value="all">All Namespaces</option>
+                        <option value="default">default</option>
+                        <option value="kube-system">kube-system</option>
+                        <option value="app-staging">app-staging</option>
+                    </select>
+                </div>
+
+                <div class="deployments-grid">
+                    <!-- Пример карточек для отображения -->
+                    <div class="deployment-card">
+                        <h3>frontend-app</h3>
+                        <p>Replicas: <strong>3/3</strong></p>
+                        <p>Container: <strong>frontend-container</strong></p>
+                        <p>Image Tag: <strong>v1.2.3</strong></p>
+                        <div class="status-badge success">Healthy</div>
+                    </div>
+
+                    <div class="deployment-card warning">
+                        <h3>api-service</h3>
+                        <p>Replicas: <strong>2/3</strong></p>
+                        <p>Container: <strong>api-container</strong></p>
+                        <p>Image Tag: <strong>v2.0.1</strong></p>
+                        <div class="status-badge warning">Progressing</div>
+                    </div>
+
+                    <div class="deployment-card error">
+                        <h3>backend-service</h3>
+                        <p>Replicas: <strong>0/2</strong></p>
+                        <p>Container: <strong>backend-container</strong></p>
+                        <p>Image Tag: <strong>v1.5.0</strong></p>
+                        <div class="status-badge error">Error</div>
+                    </div>
+
+                    <div class="deployment-card idle">
+                        <h3>batch-job</h3>
+                        <p>Replicas: <strong>0/0</strong></p>
+                        <p>Container: <strong>job-container</strong></p>
+                        <p>Image Tag: <strong>v1.0.0</strong></p>
+                        <div class="status-badge idle">Scaled to Zero</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Переключение темы
+        const themeToggle = document.querySelector('.theme-toggle');
+        const body = document.body;
+
+        // Проверяем сохраненную тему
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            body.classList.add('dark-theme');
+        }
+
+        themeToggle.addEventListener('click', () => {
+            body.classList.toggle('dark-theme');
+
+            // Сохраняем предпочтение пользователя
+            if (body.classList.contains('dark-theme')) {
+                localStorage.setItem('theme', 'dark');
+            } else {
+                localStorage.setItem('theme', 'light');
+            }
+        });
+
+        // В будущем здесь будет код для загрузки deployments с сервера
+        // fetch('/api/k8s/deployments')
+        //     .then(response => response.json())
+        //     .then(data => {
+        //         // Обработка и отображение данных
+        //     });
+    </script>
+</body>
+</html>
