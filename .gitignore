@@ -9,7 +9,7 @@ pom.xml.asc
 /checkouts/
 .lein-deps-sum
 .lein-repl-history
-.lein-plugins/
+.lein-splugins/
 .lein-failures
 .nrepl-port
 .cpcache/
