@@ -30,11 +30,23 @@
 (defn has-access-to-namespace?
   "Проверка доступа пользователя к неймспейсу"
   [user namespace]
-  (let [permissions (get-user-permissions user)
-        patterns (:allowed_namespace_patterns permissions)]
-    (some (fn [pattern]
-            (re-matches (re-pattern pattern) namespace))
-          patterns)))
+  (if (nil? user)
+    (do
+      (log/info "RBAC: Пользователь не определен, доступ к неймспейсу" namespace "запрещен")
+      false)
+    (let [permissions (get-user-permissions user)
+          patterns (:allowed_namespace_patterns permissions)]
+      (if (empty? patterns)
+        (do
+          (log/info "RBAC: Нет паттернов для пользователя" (:username user) ", доступ к" namespace "запрещен")
+          false)
+        (let [has-access (some (fn [pattern]
+                                (let [match (re-matches (re-pattern pattern) namespace)]
+                                  (log/debug "RBAC: Проверка паттерна" pattern "для" namespace "-> результат:" (boolean match))
+                                  match))
+                              patterns)]
+          (log/info "RBAC: Доступ к неймспейсу" namespace "для" (:username user) ":" (if has-access "разрешен" "запрещен"))
+          has-access)))))
 
 (defn has-access-to-cluster?
   "Проверка доступа пользователя к кластеру"

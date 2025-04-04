@@ -1,6 +1,7 @@
 (ns dashboard-light.k8s.pods
   (:require [clojure.tools.logging :as log]
-            [dashboard-light.k8s.core :refer [k8s-client]])
+            [dashboard-light.k8s.core :refer [k8s-client]]
+            [dashboard-light.k8s.cache :as cache])
   (:import [io.kubernetes.client.openapi.apis CoreV1Api]
            [io.kubernetes.client.openapi.models V1PodList]))
 

@@ -4,6 +4,7 @@
             [ring.util.response :refer [response redirect content-type resource-response]]
             [dashboard-light.web.api :as api]
             [dashboard-light.auth.core :as auth]
+            [dashboard-light.k8s.test :as k8s-test]
             [clojure.tools.logging :as log]))
 
 (defroutes app-routes
@@ -18,10 +19,16 @@
       (GET "/user" req (api/current-user req)))
 
     (context "/k8s" []
+      (GET "/namespaces" req (api/list-namespaces req))
       (GET "/deployments" req (api/list-deployments req))
       (GET "/deployments/:namespace/:name" [namespace name :as req]
            (api/get-deployment req namespace name))
-      (GET "/pods" req (api/list-pods req))))
+      (GET "/pods" req (api/list-pods req))
+      (GET "/test" []
+           (k8s-test/test-k8s-api)
+           (response {:status "ok" :message "Тест выполнен, смотрите логи"}))
+      (GET "/test-cache" req
+           (api/test-cache req))))
 
 
   (GET "/" []

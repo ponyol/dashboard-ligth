@@ -50,3 +50,16 @@ menu:
     title: "Status"
     icon: "icon-status"
     required_role: "viewer"
+
+# Настройки кэширования
+cache:
+  default_ttl: 30  # По умолчанию 30 секунд
+  ttl:
+    namespaces: 60             # Список неймспейсов кэшируется на 60 секунд
+    pods: 15                   # Поды кэшируются на 15 секунд
+    deployments: 20            # Деплойменты кэшируются на 20 секунд
+    metrics: 10                # Метрики кэшируются всего на 10 секунд
+
+# Настройки для тестирования
+test:
+  namespace_patterns: ["default", "kube-system"]  # Паттерны неймспейсов для тестирования

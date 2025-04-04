@@ -1,6 +1,7 @@
 (ns dashboard-light.k8s.metrics
   (:require [clojure.tools.logging :as log]
-            [dashboard-light.k8s.core :refer [k8s-client]])
+            [dashboard-light.k8s.core :refer [k8s-client]]
+            [dashboard-light.k8s.cache :as cache])
   (:import [io.kubernetes.client.openapi.apis CustomObjectsApi]
            [java.time Instant]))
 
@@ -27,7 +28,6 @@
 
         (re-matches #"(\d+\.\d+)" cpu-str)
         (int (* 1000 (Double/parseDouble (second (re-matches #"(\d+\.\d+)" cpu-str)))))
-
 
         :else nil))
     (catch Exception e
@@ -65,7 +65,6 @@
         (re-matches #"(\d+)" mem-str)
         (double (/ (Integer/parseInt (second (re-matches #"(\d+)" mem-str))) 1024 1024))
 
-
         :else nil))
     (catch Exception e
       (log/warn "Не удалось преобразовать значение памяти:" mem-str e)
@@ -74,40 +73,41 @@
 (defn list-pod-metrics-for-namespace
   "Получение метрик Pod из Metrics Server для указанного пространства имен"
   [namespace]
-  (try
-    (log/debug (str "Получение метрик для неймспейса " namespace))
-    (let [start-time (System/currentTimeMillis)
-          api (get-api)
-          metrics-group "metrics.k8s.io"
-          metrics-version "v1beta1"
-          metrics-plural "pods"
-          result (.listNamespacedCustomObject api metrics-group metrics-version namespace metrics-plural
-                                             nil nil nil nil nil nil nil)]
+  (cache/with-cache (str "metrics-" namespace)
+    (try
+      (log/debug (str "Получение метрик для неймспейса " namespace))
+      (let [start-time (System/currentTimeMillis)
+            api (get-api)
+            metrics-group "metrics.k8s.io"
+            metrics-version "v1beta1"
+            metrics-plural "pods"
+            result (.listNamespacedCustomObject api metrics-group metrics-version namespace metrics-plural
+                                               nil nil nil nil nil nil nil)]
 
-      (let [items (get result "items")
-            metrics-data (map (fn [item]
-                               (let [metadata (get item "metadata")
-                                     containers (get-in item ["containers"])]
-                                 {:name (get metadata "name")
-                                  :namespace (get metadata "namespace")
-                                  :timestamp (get metadata "timestamp")
-                                  :containers (map (fn [container]
-                                                     (let [name (get container "name")
-                                                           usage (get container "usage")]
-                                                       {:name name
-                                                        :resource-usage {:cpu (get usage "cpu")
-                                                                         :memory (get usage "memory")
-                                                                         :cpu-millicores (parse-cpu-value (get usage "cpu"))
-                                                                         :memory-mb (parse-memory-value (get usage "memory"))}}))
-                                                   containers)}))
-                             items)
-            duration (- (System/currentTimeMillis) start-time)]
+        (let [items (get result "items")
+              metrics-data (map (fn [item]
+                                 (let [metadata (get item "metadata")
+                                       containers (get-in item ["containers"])]
+                                   {:name (get metadata "name")
+                                    :namespace (get metadata "namespace")
+                                    :timestamp (get metadata "timestamp")
+                                    :containers (map (fn [container]
+                                                       (let [name (get container "name")
+                                                             usage (get container "usage")]
+                                                         {:name name
+                                                          :resource-usage {:cpu (get usage "cpu")
+                                                                           :memory (get usage "memory")
+                                                                           :cpu-millicores (parse-cpu-value (get usage "cpu"))
+                                                                           :memory-mb (parse-memory-value (get usage "memory"))}}))
+                                                     containers)}))
+                               items)
+              duration (- (System/currentTimeMillis) start-time)]
 
-        (log/debug (str "Получение метрик для неймспейса " namespace " выполнено за " duration " мс"))
-        metrics-data))
-    (catch Exception e
-      (log/error e "Ошибка получения метрик Pod" {:namespace namespace})
-      [])))
+          (log/debug (str "Получение метрик для неймспейса " namespace " выполнено за " duration " мс"))
+          metrics-data))
+      (catch Exception e
+        (log/error e "Ошибка получения метрик Pod" {:namespace namespace})
+        []))))
 
 (defn get-pod-metrics-by-name
   "Получение метрик для конкретного Pod по имени"
