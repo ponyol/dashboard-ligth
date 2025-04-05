@@ -96,107 +96,108 @@ __version__ = "0.1.0"
 Точка входа в приложение:
 
 #+begin_src python :tangle src/dashboard_light/core.py :mkdirp yes
-"""Точка входа в приложение Dashboard-Light."""
+  """Точка входа в приложение Dashboard-Light."""
 
-import logging
-import signal
-import sys
-from functools import partial
-from typing import Any, Callable, Dict, List, Optional
+  import logging
+  import signal
+  import sys
+  from functools import partial
+  from typing import Any, Callable, Dict, List, Optional
 
-from dashboard_light.config import core as config
-from dashboard_light.k8s import core as k8s
-from dashboard_light.web import core as web
+  from dashboard_light.config import core as config
+  from dashboard_light.k8s import core as k8s
+  from dashboard_light.web import core as web
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
-
-
-def setup_signal_handlers(cleanup_func: Callable[[], None]) -> None:
-    """Настройка обработчиков сигналов для корректного завершения приложения."""
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda signum, frame: cleanup_func())
+  # Настройка логирования
+  logging.basicConfig(
+      level=logging.DEBUG,
+      format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+  )
+  logger = logging.getLogger(__name__)
 
 
-def start_app() -> Dict[str, Any]:
-    """Запуск всех компонентов приложения.
-
-    Returns:
-        Dict[str, Any]: Словарь с компонентами приложения
-    """
-    logger.info("Запуск Dashboard-Light...")
-
-    try:
-        # Загрузка конфигурации
-        app_config = config.load_config()
-        logger.info("Конфигурация загружена успешно")
-
-        # Инициализация Kubernetes клиента
-        k8s_client = k8s.create_k8s_client(app_config)
-        logger.info("Kubernetes клиент инициализирован")
-
-        # Запуск веб-сервера
-        web_server = web.start_server(app_config, k8s_client)
-        logger.info("Веб-сервер запущен")
-
-        return {
-            "config": app_config,
-            "k8s_client": k8s_client,
-            "web_server": web_server,
-        }
-    except Exception as e:
-        logger.error(f"Ошибка при запуске приложения: {str(e)}")
-        sys.exit(1)
+  def setup_signal_handlers(cleanup_func: Callable[[], None]) -> None:
+      """Настройка обработчиков сигналов для корректного завершения приложения."""
+      for sig in (signal.SIGTERM, signal.SIGINT):
+          signal.signal(sig, lambda signum, frame: cleanup_func())
 
 
-def stop_app(components: Dict[str, Any]) -> None:
-    """Остановка всех компонентов приложения.
+  def start_app() -> Dict[str, Any]:
+      """Запуск всех компонентов приложения.
 
-    Args:
-        components: Словарь с компонентами приложения
-    """
-    logger.info("Остановка Dashboard-Light...")
+      Returns:
+          Dict[str, Any]: Словарь с компонентами приложения
+      """
+      logger.info("Запуск Dashboard-Light...")
 
-    # Остановка веб-сервера
-    web_server = components.get("web_server")
-    if web_server:
-        web.stop_server(web_server)
-        logger.info("Веб-сервер остановлен")
+      try:
+          # Загрузка конфигурации
+          app_config = config.load_config()
+          logger.info("Конфигурация загружена успешно")
 
-    # Очистка ресурсов K8s клиента
-    k8s_client = components.get("k8s_client")
-    if k8s_client:
-        k8s.cleanup_k8s_client(k8s_client)
-        logger.info("Kubernetes клиент остановлен")
+          # Инициализация Kubernetes клиента
+          k8s_client = k8s.create_k8s_client(app_config)
+          logger.info("Kubernetes клиент инициализирован")
 
-    logger.info("Приложение Dashboard-Light остановлено")
+          # Запуск веб-сервера
+          web_server = web.start_server(app_config, k8s_client)
+          logger.info("Веб-сервер запущен")
+
+          return {
+              "config": app_config,
+              "k8s_client": k8s_client,
+              "web_server": web_server,
+          }
+      except Exception as e:
+          logger.error(f"Ошибка при запуске приложения: {str(e)}")
+          sys.exit(1)
+
+  def stop_app(components: Dict[str, Any]) -> None:
+      """Остановка всех компонентов приложения.
+
+      Args:
+          components: Словарь с компонентами приложения
+      """
+      logger.info("Остановка Dashboard-Light...")
+
+      # Остановка веб-сервера
+      web_server = components.get("web_server")
+      if web_server:
+          web.stop_server(web_server)
+          logger.info("Веб-сервер остановлен")
+
+      # Очистка ресурсов K8s клиента
+      k8s_client = components.get("k8s_client")
+      if k8s_client:
+          k8s.cleanup_k8s_client(k8s_client)
+          logger.info("Kubernetes клиент остановлен")
+
+      logger.info("Приложение Dashboard-Light остановлено")
+
+      # Явно завершаем процесс
+      sys.exit(0)
+
+  def main() -> None:
+      """Основная функция для запуска приложения."""
+      components = start_app()
+
+      # Настройка обработчиков сигналов для корректного завершения
+      setup_signal_handlers(partial(stop_app, components))
+
+      try:
+          # Бесконечный цикл для поддержания работы приложения
+          # до получения сигнала остановки
+          import time
+          while True:
+              time.sleep(1)
+      except KeyboardInterrupt:
+          logger.info("Получен сигнал остановки приложения")
+      finally:
+          stop_app(components)
 
 
-def main() -> None:
-    """Основная функция для запуска приложения."""
-    components = start_app()
-
-    # Настройка обработчиков сигналов для корректного завершения
-    setup_signal_handlers(partial(stop_app, components))
-
-    try:
-        # Бесконечный цикл для поддержания работы приложения
-        # до получения сигнала остановки
-        import time
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Получен сигнал остановки приложения")
-    finally:
-        stop_app(components)
-
-
-if __name__ == "__main__":
-    main()
+  if __name__ == "__main__":
+      main()
 #+end_src
 
 * Работа с конфигурацией
@@ -532,6 +533,13 @@ def validate_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
           if use_mock:
               logger.info("Используется MOCK-клиент Kubernetes")
               api_client = client.ApiClient()
+              return {
+                  "is_mock": True,
+                  "api_client": None,
+                  "core_v1_api": None,
+                  "apps_v1_api": None,
+                  "custom_objects_api": None,
+              }
           else:
               logger.info("Подключение к кластеру Kubernetes...")
               try:
@@ -759,251 +767,331 @@ def initialize_cache() -> None:
 Работа с Namespaces:
 
 #+begin_src python :tangle src/dashboard_light/k8s/namespaces.py :mkdirp yes
-"""Модуль для работы с неймспейсами Kubernetes."""
+  """Модуль для работы с неймспейсами Kubernetes."""
 
-import logging
-import re
-from typing import Any, Dict, List, Optional
+  import logging
+  import re
+  from typing import Any, Dict, List, Optional
 
-from kubernetes import client
-from kubernetes.client.exceptions import ApiException
+  from kubernetes import client
+  from kubernetes.client.exceptions import ApiException
 
-from dashboard_light.k8s.cache import with_cache
+  from dashboard_light.k8s.cache import with_cache
 
-logger = logging.getLogger(__name__)
+  logger = logging.getLogger(__name__)
 
-# Тестовые данные для режима разработки
-TEST_NAMESPACES = [
-    {"name": "default", "phase": "Active"},
-    {"name": "kube-system", "phase": "Active"},
-    {"name": "project-app1-staging", "phase": "Active"},
-    {"name": "project-app2-prod", "phase": "Active"},
-]
+  # Тестовые данные для режима разработки
+  TEST_NAMESPACES = [
+      {"name": "default", "phase": "Active", "created": "2025-01-01T00:00:00Z", "labels": {}},
+      {"name": "kube-system", "phase": "Active", "created": "2025-01-01T00:00:00Z", "labels": {}},
+      {"name": "project-app1-staging", "phase": "Active", "created": "2025-01-01T00:00:00Z", "labels": {"env": "staging"}},
+      {"name": "project-app2-prod", "phase": "Active", "created": "2025-01-01T00:00:00Z", "labels": {"env": "production"}},
+  ]
 
+  @with_cache("namespaces")
+  def list_namespaces(k8s_client: Dict[str, Any]) -> List[Dict[str, Any]]:
+      """Получение списка всех неймспейсов в кластере.
 
-@with_cache("namespaces")
-def list_namespaces(k8s_client: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Получение списка всех неймспейсов в кластере.
+      Args:
+          k8s_client: Словарь с Kubernetes клиентом и API
 
-    Args:
-        k8s_client: Словарь с Kubernetes клиентом и API
+      Returns:
+          List[Dict[str, Any]]: Список данных о неймспейсах
+      """
+      # Проверяем, в режиме мока мы или нет
+      if k8s_client.get("is_mock", False):
+          logger.info("K8S: Работаем в режиме мока, возвращаем тестовые данные")
+          return TEST_NAMESPACES
 
-    Returns:
-        List[Dict[str, Any]]: Список данных о неймспейсах
-    """
-    try:
-        logger.info("K8S: Запрос списка неймспейсов из Kubernetes API")
-        core_v1_api = k8s_client.get("core_v1_api")
+      try:
+          logger.info("K8S: Запрос списка неймспейсов из Kubernetes API")
+          core_v1_api = k8s_client.get("core_v1_api")
 
-        if not core_v1_api:
-            logger.warning("K8S: API клиент не инициализирован, возвращаем тестовые данные")
-            return TEST_NAMESPACES
+          if not core_v1_api:
+              logger.warning("K8S: API клиент не инициализирован, возвращаем тестовые данные")
+              return TEST_NAMESPACES
 
-        result = core_v1_api.list_namespace()
+          result = core_v1_api.list_namespace()
 
-        if not result or not result.items:
-            logger.warning("K8S: Результат запроса неймспейсов пуст, возвращаем тестовые данные")
-            return TEST_NAMESPACES
+          if not result or not result.items:
+              logger.warning("K8S: Результат запроса неймспейсов пуст, возвращаем тестовые данные")
+              return TEST_NAMESPACES
 
-        items = result.items
-        logger.info(f"K8S: Получено элементов: {len(items)}")
+          items = result.items
+          logger.info(f"K8S: Получено элементов: {len(items)}")
 
-        # Преобразование в словари с нужными полями
-        namespaces = [
-            {
-                "name": item.metadata.name,
-                "phase": item.status.phase,
-                "created": item.metadata.creation_timestamp.isoformat()
-                    if item.metadata.creation_timestamp else None,
-                "labels": item.metadata.labels if item.metadata.labels else {},
-            }
-            for item in items
-        ]
+          # Преобразование в словари с нужными полями
+          namespaces = [
+              {
+                  "name": item.metadata.name,
+                  "phase": item.status.phase,
+                  "created": item.metadata.creation_timestamp.isoformat()
+                      if item.metadata.creation_timestamp else None,
+                  "labels": item.metadata.labels if item.metadata.labels else {},
+              }
+              for item in items
+          ]
 
-        return namespaces
-    except ApiException as e:
-        logger.error(f"K8S: Ошибка API при получении списка неймспейсов: {str(e)}")
-        return TEST_NAMESPACES
-    except Exception as e:
-        logger.error(f"K8S: Ошибка получения списка неймспейсов: {str(e)}")
-        return TEST_NAMESPACES
-
-
-def filter_namespaces_by_pattern(namespaces: List[Dict[str, Any]],
-                                patterns: List[str]) -> List[Dict[str, Any]]:
-    """Фильтрация неймспейсов по списку регулярных выражений.
-
-    Args:
-        namespaces: Список данных о неймспейсах
-        patterns: Список регулярных выражений для фильтрации
-
-    Returns:
-        List[Dict[str, Any]]: Отфильтрованный список данных о неймспейсах
-    """
-    # Если паттерны пустые или есть ".*", возвращаем все неймспейсы
-    if not patterns or any(pattern == ".*" for pattern in patterns):
-        return namespaces
-
-    # Компиляция регулярных выражений для оптимизации
-    compiled_patterns = [re.compile(pattern) for pattern in patterns]
-
-    # Фильтрация неймспейсов
-    filtered = [
-        namespace for namespace in namespaces
-        if any(pattern.match(namespace["name"]) for pattern in compiled_patterns)
-    ]
-
-    return filtered
+          return namespaces
+      except ApiException as e:
+          logger.error(f"K8S: Ошибка API при получении списка неймспейсов: {str(e)}")
+          return TEST_NAMESPACES
+      except Exception as e:
+          logger.error(f"K8S: Ошибка получения списка неймспейсов: {str(e)}")
+          return TEST_NAMESPACES
 
 
-def list_filtered_namespaces(k8s_client: Dict[str, Any],
-                           patterns: List[str]) -> List[Dict[str, Any]]:
-    """Получение отфильтрованных неймспейсов по списку регулярных выражений.
+  def filter_namespaces_by_pattern(namespaces: List[Dict[str, Any]],
+                                  patterns: List[str]) -> List[Dict[str, Any]]:
+      """Фильтрация неймспейсов по списку регулярных выражений.
 
-    Args:
-        k8s_client: Словарь с Kubernetes клиентом и API
-        patterns: Список регулярных выражений для фильтрации
+      Args:
+          namespaces: Список данных о неймспейсах
+          patterns: Список регулярных выражений для фильтрации
 
-    Returns:
-        List[Dict[str, Any]]: Отфильтрованный список данных о неймспейсах
-    """
-    all_namespaces = list_namespaces(k8s_client)
-    return filter_namespaces_by_pattern(all_namespaces, patterns)
+      Returns:
+          List[Dict[str, Any]]: Отфильтрованный список данных о неймспейсах
+      """
+      # Если паттерны пустые или есть ".*", возвращаем все неймспейсы
+      if not patterns or any(pattern == ".*" for pattern in patterns):
+          return namespaces
+
+      # Компиляция регулярных выражений для оптимизации
+      compiled_patterns = [re.compile(pattern) for pattern in patterns]
+
+      # Фильтрация неймспейсов
+      filtered = [
+          namespace for namespace in namespaces
+          if any(pattern.match(namespace["name"]) for pattern in compiled_patterns)
+      ]
+
+      return filtered
+
+
+  def list_filtered_namespaces(k8s_client: Dict[str, Any],
+                             patterns: List[str]) -> List[Dict[str, Any]]:
+      """Получение отфильтрованных неймспейсов по списку регулярных выражений.
+
+      Args:
+          k8s_client: Словарь с Kubernetes клиентом и API
+          patterns: Список регулярных выражений для фильтрации
+
+      Returns:
+          List[Dict[str, Any]]: Отфильтрованный список данных о неймспейсах
+      """
+      all_namespaces = list_namespaces(k8s_client)
+      return filter_namespaces_by_pattern(all_namespaces, patterns)
 #+end_src
 
 ** src/dashboard_light/k8s/deployments.py
 Работа с Deployments:
 
 #+begin_src python :tangle src/dashboard_light/k8s/deployments.py :mkdirp yes
-"""Модуль для работы с деплойментами Kubernetes."""
+  """Модуль для работы с деплойментами Kubernetes."""
 
-import logging
-import re
-from typing import Any, Dict, List, Optional
+  import logging
+  import re
+  from typing import Any, Dict, List, Optional
 
-from kubernetes import client
-from kubernetes.client.exceptions import ApiException
+  from kubernetes import client
+  from kubernetes.client.exceptions import ApiException
 
-from dashboard_light.k8s.cache import with_cache
+  from dashboard_light.k8s.cache import with_cache
 
-logger = logging.getLogger(__name__)
+  logger = logging.getLogger(__name__)
+
+  # Тестовые данные для режима разработки
+  TEST_DEPLOYMENTS = [
+      {
+          "name": "test-deployment-1",
+          "namespace": "default",
+          "replicas": {
+              "desired": 3,
+              "ready": 3,
+              "available": 3,
+              "updated": 3,
+          },
+          "main_container": {
+              "name": "test-container-1",
+              "image": "nginx:latest",
+              "image_tag": "latest",
+          },
+          "labels": {"app": "test-app-1"},
+          "status": "healthy"  # Добавляем статус явно
+      },
+      {
+          "name": "test-deployment-2",
+          "namespace": "default",
+          "replicas": {
+              "desired": 2,
+              "ready": 1,
+              "available": 1,
+              "updated": 1,
+          },
+          "main_container": {
+              "name": "test-container-2",
+              "image": "apache:latest",
+              "image_tag": "latest",
+          },
+          "labels": {"app": "test-app-2"},
+          "status": "progressing"  # Добавляем статус явно
+      },
+      {
+          "name": "test-deployment-3",
+          "namespace": "default",
+          "replicas": {
+              "desired": 0,
+              "ready": 0,
+              "available": 0,
+              "updated": 0,
+          },
+          "main_container": {
+              "name": "test-container-3",
+              "image": "redis:latest",
+              "image_tag": "latest",
+          },
+          "labels": {"app": "test-app-3"},
+          "status": "scaled_zero"  # Добавляем статус явно
+      },
+      {
+          "name": "project-app-deploy",
+          "namespace": "project-app1-staging",
+          "replicas": {
+              "desired": 1,
+              "ready": 1,
+              "available": 1,
+              "updated": 1,
+          },
+          "main_container": {
+              "name": "app-pod",
+              "image": "registry-minor:5000/project/app:staging-a1dcf6ff",
+              "image_tag": "staging-a1dcf6ff",
+          },
+          "labels": {"app": "project-app"},
+          "status": "healthy"  # Добавляем статус явно
+      }
+  ]
+
+  @with_cache("deployments")
+  def list_deployments_for_namespace(k8s_client: Dict[str, Any], namespace: str) -> List[Dict[str, Any]]:
+      """Получение списка Deployments в указанном пространстве имен.
+
+      Args:
+          k8s_client: Словарь с Kubernetes клиентом и API
+          namespace: Имя пространства имен
+
+      Returns:
+          List[Dict[str, Any]]: Список данных о Deployments
+      """
+      # Проверяем, в режиме мока мы или нет
+      if k8s_client.get("is_mock", False):
+          logger.info(f"K8S: Работаем в режиме мока, возвращаем тестовые данные для неймспейса {namespace}")
+          # Возвращаем только те тестовые деплойменты, которые в указанном неймспейсе
+          return [d for d in TEST_DEPLOYMENTS if d["namespace"] == namespace or namespace == ""]
+      try:
+          apps_v1_api = k8s_client.get("apps_v1_api")
+
+          if not apps_v1_api:
+              logger.warning(f"K8S: API клиент для Apps/v1 не инициализирован, "
+                            f"возвращаем пустой список для {namespace}")
+              return []
+
+          result = apps_v1_api.list_namespaced_deployment(namespace=namespace)
+
+          if not result or not result.items:
+              logger.info(f"K8S: Нет Deployments в неймспейсе {namespace}")
+              return []
+
+          # Преобразование в словари с нужными полями
+          deployments = []
+          for item in result.items:
+              metadata = item.metadata
+              spec = item.spec
+              status = item.status
+
+              # Получение информации о контейнерах
+              containers = []
+              if spec.template and spec.template.spec and spec.template.spec.containers:
+                  containers = spec.template.spec.containers
+
+              main_container = containers[0] if containers else None
+
+              # Формирование данных о деплойменте
+              deployment_data = {
+                  "name": metadata.name,
+                  "namespace": metadata.namespace,
+                  "replicas": {
+                      "desired": spec.replicas,
+                      "ready": status.ready_replicas if status.ready_replicas else 0,
+                      "available": status.available_replicas if status.available_replicas else 0,
+                      "updated": status.updated_replicas if status.updated_replicas else 0,
+                  }
+              }
+
+              # Добавление информации о главном контейнере, если он есть
+              if main_container:
+                  image = main_container.image
+                  image_tag = image.split(":")[-1] if ":" in image else "latest"
+
+                  deployment_data["main_container"] = {
+                      "name": main_container.name,
+                      "image": image,
+                      "image_tag": image_tag,
+                  }
+
+              # Добавление лейблов
+              if metadata.labels:
+                  deployment_data["labels"] = metadata.labels
+
+              deployments.append(deployment_data)
+
+          return deployments
+      except ApiException as e:
+          logger.error(f"K8S: Ошибка API при получении Deployments: {str(e)}")
+          return []
+      except Exception as e:
+          logger.error(f"K8S: Ошибка получения списка Deployments: {str(e)}")
+          return []
 
 
-@with_cache("deployments")
-def list_deployments_for_namespace(k8s_client: Dict[str, Any], namespace: str) -> List[Dict[str, Any]]:
-    """Получение списка Deployments в указанном пространстве имен.
+  def list_deployments_multi_ns(k8s_client: Dict[str, Any], namespaces: List[str]) -> List[Dict[str, Any]]:
+      """Получение списка Deployments для нескольких пространств имен."""
+      # Проверяем, в режиме мока мы или нет
+      if k8s_client.get("is_mock", False):
+          logger.info(f"K8S: Работаем в режиме мока, возвращаем тестовые данные для неймспейсов {namespaces}")
+          # Если список неймспейсов пуст или содержит пустую строку, возвращаем все
+          if not namespaces or "" in namespaces:
+              return TEST_DEPLOYMENTS
+          # Иначе фильтруем по указанным неймспейсам
+          return [d for d in TEST_DEPLOYMENTS if d["namespace"] in namespaces]
 
-    Args:
-        k8s_client: Словарь с Kubernetes клиентом и API
-        namespace: Имя пространства имен
+      deployments = []
+      for namespace in namespaces:
+          namespace_deployments = list_deployments_for_namespace(k8s_client, namespace)
+          deployments.extend(namespace_deployments)
 
-    Returns:
-        List[Dict[str, Any]]: Список данных о Deployments
-    """
-    try:
-        apps_v1_api = k8s_client.get("apps_v1_api")
+      return deployments
 
-        if not apps_v1_api:
-            logger.warning(f"K8S: API клиент для Apps/v1 не инициализирован, "
-                          f"возвращаем пустой список для {namespace}")
-            return []
+  def get_deployment_status(deployment: Dict[str, Any]) -> str:
+      """Определение статуса Deployment на основе его параметров.
 
-        result = apps_v1_api.list_namespaced_deployment(namespace=namespace)
+      Args:
+          deployment: Данные о Deployment
 
-        if not result or not result.items:
-            logger.info(f"K8S: Нет Deployments в неймспейсе {namespace}")
-            return []
+      Returns:
+          str: Статус Deployment (healthy, progressing, scaled_zero, error)
+      """
+      desired = deployment.get("replicas", {}).get("desired")
+      ready = deployment.get("replicas", {}).get("ready", 0)
 
-        # Преобразование в словари с нужными полями
-        deployments = []
-        for item in result.items:
-            metadata = item.metadata
-            spec = item.spec
-            status = item.status
-
-            # Получение информации о контейнерах
-            containers = []
-            if spec.template and spec.template.spec and spec.template.spec.containers:
-                containers = spec.template.spec.containers
-
-            main_container = containers[0] if containers else None
-
-            # Формирование данных о деплойменте
-            deployment_data = {
-                "name": metadata.name,
-                "namespace": metadata.namespace,
-                "replicas": {
-                    "desired": spec.replicas,
-                    "ready": status.ready_replicas if status.ready_replicas else 0,
-                    "available": status.available_replicas if status.available_replicas else 0,
-                    "updated": status.updated_replicas if status.updated_replicas else 0,
-                }
-            }
-
-            # Добавление информации о главном контейнере, если он есть
-            if main_container:
-                image = main_container.image
-                image_tag = image.split(":")[-1] if ":" in image else "latest"
-
-                deployment_data["main_container"] = {
-                    "name": main_container.name,
-                    "image": image,
-                    "image_tag": image_tag,
-                }
-
-            # Добавление лейблов
-            if metadata.labels:
-                deployment_data["labels"] = metadata.labels
-
-            deployments.append(deployment_data)
-
-        return deployments
-    except ApiException as e:
-        logger.error(f"K8S: Ошибка API при получении Deployments: {str(e)}")
-        return []
-    except Exception as e:
-        logger.error(f"K8S: Ошибка получения списка Deployments: {str(e)}")
-        return []
-
-
-def list_deployments_multi_ns(k8s_client: Dict[str, Any], namespaces: List[str]) -> List[Dict[str, Any]]:
-    """Получение списка Deployments для нескольких пространств имен.
-
-    Args:
-        k8s_client: Словарь с Kubernetes клиентом и API
-        namespaces: Список имен пространств имен
-
-    Returns:
-        List[Dict[str, Any]]: Объединенный список данных о Deployments
-    """
-    deployments = []
-    for namespace in namespaces:
-        namespace_deployments = list_deployments_for_namespace(k8s_client, namespace)
-        deployments.extend(namespace_deployments)
-
-    return deployments
-
-
-def get_deployment_status(deployment: Dict[str, Any]) -> str:
-    """Определение статуса Deployment на основе его параметров.
-
-    Args:
-        deployment: Данные о Deployment
-
-    Returns:
-        str: Статус Deployment (healthy, progressing, scaled_zero, error)
-    """
-    desired = deployment.get("replicas", {}).get("desired")
-    ready = deployment.get("replicas", {}).get("ready", 0)
-
-    if desired is None:
-        return "error"
-    elif desired == 0:
-        return "scaled_zero"
-    elif ready == desired:
-        return "healthy"
-    else:
-        return "progressing"
+      if desired is None:
+          return "error"
+      elif desired == 0:
+          return "scaled_zero"
+      elif ready == desired:
+          return "healthy"
+      else:
+          return "progressing"
 #+end_src
 
 * Утилиты
@@ -1253,118 +1341,118 @@ def pipe(value: Any, *funcs: Callable) -> Any:
 Настройка логирования:
 
 #+begin_src python :tangle src/dashboard_light/utils/logging.py :mkdirp yes
-"""Модуль для настройки и управления логированием."""
+  """Модуль для настройки и управления логированием."""
 
-import functools
-import logging
-import os
-import time
-from contextlib import contextmanager
-from typing import Any, Callable, Dict, Generator, Optional, TypeVar
+  import functools
+  import logging
+  import os
+  import time
+  from contextlib import contextmanager
+  from typing import Any, Callable, Dict, Generator, Optional, TypeVar
 
-T = TypeVar('T')
+  T = TypeVar('T')
 
-logger = logging.getLogger(__name__)
-
-
-def configure_logging(level: Optional[str] = None) -> None:
-    """Настройка логирования на основе конфигурации.
-
-    Args:
-        level: Уровень логирования
-    """
-    if level is None:
-        level = os.environ.get("LOG_LEVEL", "INFO")
-
-    numeric_level = getattr(logging, level.upper(), logging.INFO)
-
-    # Настройка корневого логгера
-    logging.basicConfig(
-        level=numeric_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
-    # Установка уровня логирования для корневого логгера
-    logging.getLogger().setLevel(numeric_level)
-
-    logger.info(f"Уровень логирования установлен: {level.upper()}")
+  logger = logging.getLogger(__name__)
 
 
-def set_logger_level(logger_name: str, level: str) -> None:
-    """Установка уровня логирования для конкретного логгера.
+  def configure_logging(level: Optional[str] = None) -> None:
+      """Настройка логирования на основе конфигурации.
 
-    Args:
-        logger_name: Имя логгера
-        level: Уровень логирования
-    """
-    numeric_level = getattr(logging, level.upper(), logging.INFO)
-    logging.getLogger(logger_name).setLevel(numeric_level)
-    logger.info(f"Уровень логирования для {logger_name} установлен: {level.upper()}")
+      Args:
+          level: Уровень логирования
+      """
+      if level is None:
+          level = os.environ.get("LOG_LEVEL", "INFO")
 
+      numeric_level = getattr(logging, level.upper(), logging.INFO)
 
-@contextmanager
-def log_timing(message: str, level: int = logging.INFO) -> Generator[None, None, None]:
-    """Контекстный менеджер для измерения времени выполнения блока кода.
+      # Настройка корневого логгера
+      logging.basicConfig(
+          level=numeric_level,
+          format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+      )
 
-    Args:
-        message: Сообщение для логирования
-        level: Уровень логирования
+      # Установка уровня логирования для корневого логгера
+      logging.getLogger().setLevel(numeric_level)
 
-    Yields:
-        None
-    """
-    start_time = time.time()
-    try:
-        yield
-    finally:
-        duration = time.time() - start_time
-        logger.log(level, f"{message} (выполнено за {duration:.3f} сек)")
+      logger.info(f"Уровень логирования установлен: {level.upper()}")
 
 
-def with_logging(message: str, level: int = logging.INFO) -> Callable:
-    """Декоратор для логирования времени выполнения функции.
+  def set_logger_level(logger_name: str, level: str) -> None:
+      """Установка уровня логирования для конкретного логгера.
 
-    Args:
-        message: Сообщение для логирования
-        level: Уровень логирования
-
-    Returns:
-        Callable: Декорированная функция
-    """
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> T:
-            with log_timing(f"{message} - {func.__name__}", level):
-                return func(*args, **kwargs)
-        return wrapper
-    return decorator
+      Args:
+          logger_name: Имя логгера
+          level: Уровень логирования
+      """
+      numeric_level = getattr(logging, level.upper(), logging.INFO)
+      logging.getLogger(logger_name).setLevel(numeric_level)
+      logger.info(f"Уровень логирования для {logger_name} установлен: {level.upper()}")
 
 
-@contextmanager
-def error_logging(context: Dict[str, Any] = None) -> Generator[None, None, None]:
-    """Контекстный менеджер для логирования ошибок при выполнении блока кода.
+  @contextmanager
+  def log_timing(message: str, level: int = logging.INFO) -> Generator[None, None, None]:
+      """Контекстный менеджер для измерения времени выполнения блока кода.
 
-    Args:
-        context: Дополнительный контекст для логирования при ошибке
+      Args:
+          message: Сообщение для логирования
+          level: Уровень логирования
 
-    Yields:
-        None
-    """
-    try:
-        yield
-    except Exception as e:
-        error_context = {"message": str(e)}
-        if context:
-            error_context.update(context)
-
-        logger.exception(f"Ошибка: {error_context}")
-        raise
+      Yields:
+          None
+      """
+      start_time = time.time()
+      try:
+          yield
+      finally:
+          duration = time.time() - start_time
+          logger.log(level, f"{message} (выполнено за {duration:.3f} сек)")
 
 
-# Предопределенные декораторы для удобства
-debug_timing = functools.partial(with_logging, level=logging.DEBUG)
-info_timing = functools.partial(with_logging, level=logging.INFO)
-warn_timing = functools.partial(with_logging, level=logging.WARNING)
+  def with_logging(message: str, level: int = logging.INFO) -> Callable:
+      """Декоратор для логирования времени выполнения функции.
+
+      Args:
+          message: Сообщение для логирования
+          level: Уровень логирования
+
+      Returns:
+          Callable: Декорированная функция
+      """
+      def decorator(func: Callable[..., T]) -> Callable[..., T]:
+          @functools.wraps(func)
+          def wrapper(*args, **kwargs) -> T:
+              with log_timing(f"{message} - {func.__name__}", level):
+                  return func(*args, **kwargs)
+          return wrapper
+      return decorator
+
+
+  @contextmanager
+  def error_logging(context: Dict[str, Any] = None) -> Generator[None, None, None]:
+      """Контекстный менеджер для логирования ошибок при выполнении блока кода.
+
+      Args:
+          context: Дополнительный контекст для логирования при ошибке
+
+      Yields:
+          None
+      """
+      try:
+          yield
+      except Exception as e:
+          error_context = {"message": str(e)}
+          if context:
+              error_context.update(context)
+
+          logger.exception(f"Ошибка: {error_context}")
+          raise
+
+
+  # Предопределенные декораторы для удобства
+  debug_timing = functools.partial(with_logging, level=logging.DEBUG)
+  info_timing = functools.partial(with_logging, level=logging.INFO)
+  warn_timing = functools.partial(with_logging, level=logging.WARNING)
 #+end_src
 
 * Пример конфигурации

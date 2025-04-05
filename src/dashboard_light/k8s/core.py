@@ -29,6 +29,13 @@ def create_k8s_client(app_config: Dict[str, Any]) -> Dict[str, Any]:
         if use_mock:
             logger.info("Используется MOCK-клиент Kubernetes")
             api_client = client.ApiClient()
+            return {
+                "is_mock": True,
+                "api_client": None,
+                "core_v1_api": None,
+                "apps_v1_api": None,
+                "custom_objects_api": None,
+            }
         else:
             logger.info("Подключение к кластеру Kubernetes...")
             try:

@@ -13,12 +13,11 @@ logger = logging.getLogger(__name__)
 
 # Тестовые данные для режима разработки
 TEST_NAMESPACES = [
-    {"name": "default", "phase": "Active"},
-    {"name": "kube-system", "phase": "Active"},
-    {"name": "project-app1-staging", "phase": "Active"},
-    {"name": "project-app2-prod", "phase": "Active"},
+    {"name": "default", "phase": "Active", "created": "2025-01-01T00:00:00Z", "labels": {}},
+    {"name": "kube-system", "phase": "Active", "created": "2025-01-01T00:00:00Z", "labels": {}},
+    {"name": "project-app1-staging", "phase": "Active", "created": "2025-01-01T00:00:00Z", "labels": {"env": "staging"}},
+    {"name": "project-app2-prod", "phase": "Active", "created": "2025-01-01T00:00:00Z", "labels": {"env": "production"}},
 ]
-
 
 @with_cache("namespaces")
 def list_namespaces(k8s_client: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -30,6 +29,11 @@ def list_namespaces(k8s_client: Dict[str, Any]) -> List[Dict[str, Any]]:
     Returns:
         List[Dict[str, Any]]: Список данных о неймспейсах
     """
+    # Проверяем, в режиме мока мы или нет
+    if k8s_client.get("is_mock", False):
+        logger.info("K8S: Работаем в режиме мока, возвращаем тестовые данные")
+        return TEST_NAMESPACES
+
     try:
         logger.info("K8S: Запрос списка неймспейсов из Kubernetes API")
         core_v1_api = k8s_client.get("core_v1_api")

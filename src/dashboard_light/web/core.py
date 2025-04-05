@@ -54,6 +54,12 @@ def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAP
 
     # Создание и добавление роутеров
     main_router = create_router(app_config, k8s_client)
+    if main_router is not None:
+        app.include_router(main_router)
+    else:
+        logger.error("Не удалось создать основной роутер - он равен None")
+        raise ValueError("Основной роутер приложения не был инициализирован корректно")
+
     app.include_router(main_router)
 
     # Переработаем определение пути к статическим файлам

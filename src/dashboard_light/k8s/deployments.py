@@ -11,6 +11,77 @@ from dashboard_light.k8s.cache import with_cache
 
 logger = logging.getLogger(__name__)
 
+# Тестовые данные для режима разработки
+TEST_DEPLOYMENTS = [
+    {
+        "name": "test-deployment-1",
+        "namespace": "default",
+        "replicas": {
+            "desired": 3,
+            "ready": 3,
+            "available": 3,
+            "updated": 3,
+        },
+        "main_container": {
+            "name": "test-container-1",
+            "image": "nginx:latest",
+            "image_tag": "latest",
+        },
+        "labels": {"app": "test-app-1"},
+        "status": "healthy"  # Добавляем статус явно
+    },
+    {
+        "name": "test-deployment-2",
+        "namespace": "default",
+        "replicas": {
+            "desired": 2,
+            "ready": 1,
+            "available": 1,
+            "updated": 1,
+        },
+        "main_container": {
+            "name": "test-container-2",
+            "image": "apache:latest",
+            "image_tag": "latest",
+        },
+        "labels": {"app": "test-app-2"},
+        "status": "progressing"  # Добавляем статус явно
+    },
+    {
+        "name": "test-deployment-3",
+        "namespace": "default",
+        "replicas": {
+            "desired": 0,
+            "ready": 0,
+            "available": 0,
+            "updated": 0,
+        },
+        "main_container": {
+            "name": "test-container-3",
+            "image": "redis:latest",
+            "image_tag": "latest",
+        },
+        "labels": {"app": "test-app-3"},
+        "status": "scaled_zero"  # Добавляем статус явно
+    },
+    {
+        "name": "project-app-deploy",
+        "namespace": "project-app1-staging",
+        "replicas": {
+            "desired": 1,
+            "ready": 1,
+            "available": 1,
+            "updated": 1,
+        },
+        "main_container": {
+            "name": "app-pod",
+            "image": "registry-minor:5000/project/app:staging-a1dcf6ff",
+            "image_tag": "staging-a1dcf6ff",
+        },
+        "labels": {"app": "project-app"},
+        "status": "healthy"  # Добавляем статус явно
+    }
+]
 
 @with_cache("deployments")
 def list_deployments_for_namespace(k8s_client: Dict[str, Any], namespace: str) -> List[Dict[str, Any]]:
@@ -23,6 +94,11 @@ def list_deployments_for_namespace(k8s_client: Dict[str, Any], namespace: str) -
     Returns:
         List[Dict[str, Any]]: Список данных о Deployments
     """
+    # Проверяем, в режиме мока мы или нет
+    if k8s_client.get("is_mock", False):
+        logger.info(f"K8S: Работаем в режиме мока, возвращаем тестовые данные для неймспейса {namespace}")
+        # Возвращаем только те тестовые деплойменты, которые в указанном неймспейсе
+        return [d for d in TEST_DEPLOYMENTS if d["namespace"] == namespace or namespace == ""]
     try:
         apps_v1_api = k8s_client.get("apps_v1_api")
 
@@ -90,22 +166,22 @@ def list_deployments_for_namespace(k8s_client: Dict[str, Any], namespace: str) -
 
 
 def list_deployments_multi_ns(k8s_client: Dict[str, Any], namespaces: List[str]) -> List[Dict[str, Any]]:
-    """Получение списка Deployments для нескольких пространств имен.
+    """Получение списка Deployments для нескольких пространств имен."""
+    # Проверяем, в режиме мока мы или нет
+    if k8s_client.get("is_mock", False):
+        logger.info(f"K8S: Работаем в режиме мока, возвращаем тестовые данные для неймспейсов {namespaces}")
+        # Если список неймспейсов пуст или содержит пустую строку, возвращаем все
+        if not namespaces or "" in namespaces:
+            return TEST_DEPLOYMENTS
+        # Иначе фильтруем по указанным неймспейсам
+        return [d for d in TEST_DEPLOYMENTS if d["namespace"] in namespaces]
 
-    Args:
-        k8s_client: Словарь с Kubernetes клиентом и API
-        namespaces: Список имен пространств имен
-
-    Returns:
-        List[Dict[str, Any]]: Объединенный список данных о Deployments
-    """
     deployments = []
     for namespace in namespaces:
         namespace_deployments = list_deployments_for_namespace(k8s_client, namespace)
         deployments.extend(namespace_deployments)
 
     return deployments
-
 
 def get_deployment_status(deployment: Dict[str, Any]) -> str:
     """Определение статуса Deployment на основе его параметров.

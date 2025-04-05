@@ -2,6 +2,7 @@
 
 import logging
 from typing import Any, Dict, List, Optional
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -33,15 +34,15 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
 
     # Функция для фильтрации неймспейсов по правам доступа пользователя
     async def filter_namespaces_by_access(request: Request, namespaces_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Фильтрация неймспейсов по правам доступа пользователя.
+        """Фильтрация неймспейсов по правам доступа пользователя."""
+        # Проверяем, отключена ли аутентификация в режиме разработки
+        auth_disabled = os.environ.get("DISABLE_AUTH", "false").lower() in ["true", "1", "yes", "y"]
 
-        Args:
-            request: HTTP запрос
-            namespaces_data: Список данных о неймспейсах
+        # Если аутентификация отключена, возвращаем все неймспейсы
+        if auth_disabled:
+            logger.debug("Аутентификация отключена, возвращаем все неймспейсы")
+            return namespaces_data
 
-        Returns:
-            List[Dict[str, Any]]: Отфильтрованный список данных о неймспейсах
-        """
         # Получение пользователя из сессии
         user = request.session.get("user")
 
@@ -71,6 +72,45 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
 
         # Пока возвращаем все неймспейсы (для отладки)
         return namespaces_data
+    # async def filter_namespaces_by_access(request: Request, namespaces_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    #     """Фильтрация неймспейсов по правам доступа пользователя.
+
+    #     Args:
+    #         request: HTTP запрос
+    #         namespaces_data: Список данных о неймспейсах
+
+    #     Returns:
+    #         List[Dict[str, Any]]: Отфильтрованный список данных о неймспейсах
+    #     """
+    #     # Получение пользователя из сессии
+    #     user = request.session.get("user")
+
+    #     # Если пользователь не аутентифицирован, предоставляем доступ только к неймспейсам для анонимных
+    #     if not user:
+    #         # Проверка настройки анонимного доступа
+    #         auth_config = app_config.get("auth", {})
+    #         allow_anonymous = auth_config.get("allow_anonymous_access", False)
+
+    #         if not allow_anonymous:
+    #             return []
+
+    #         # Использование роли по умолчанию для анонимных пользователей
+    #         anonymous_role = auth_config.get("anonymous_role")
+    #         if not anonymous_role:
+    #             return []
+
+    #         # Получение разрешенных неймспейсов для роли анонимного пользователя
+    #         permissions = auth_config.get("permissions", {}).get(anonymous_role, {})
+    #         allowed_patterns = permissions.get("allowed_namespace_patterns", [])
+
+    #         # Фильтрация неймспейсов по разрешенным шаблонам
+    #         return namespaces.filter_namespaces_by_pattern(namespaces_data, allowed_patterns)
+
+    #     # Для аутентифицированных пользователей фильтруем по их правам
+    #     # TODO: Реализовать RBAC для фильтрации неймспейсов
+
+    #     # Пока возвращаем все неймспейсы (для отладки)
+    #     return namespaces_data
 
     @router.get("/namespaces", response_model=NamespaceList)
     async def list_namespaces(request: Request):
@@ -78,11 +118,15 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
         try:
             # Получение списка неймспейсов
             all_namespaces = namespaces.list_namespaces(k8s_client)
+            logger.debug(f"Получено неймспейсов: {len(all_namespaces)}")
 
             # Фильтрация неймспейсов по правам доступа
             allowed_namespaces = await filter_namespaces_by_access(request, all_namespaces)
+            logger.debug(f"После фильтрации осталось неймспейсов: {len(allowed_namespaces)}")
 
-            return {"items": allowed_namespaces}
+            response = {"items": allowed_namespaces}
+            logger.debug(f"Отправка неймспейсов на фронт: {response}")
+            return response
         except Exception as e:
             logger.error(f"Ошибка при получении списка неймспейсов: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Ошибка при получении списка неймспейсов: {str(e)}")
@@ -232,5 +276,32 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
         except Exception as e:
             logger.error(f"Ошибка при очистке кэша: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Ошибка при очистке кэша: {str(e)}")
+
+    @router.get("/debug/data")
+    async def debug_data():
+        """Эндпоинт для отладки данных."""
+        return {
+            "namespaces": namespaces.list_namespaces(k8s_client),
+            "deployments": [
+                {
+                    "namespace": ns["name"],
+                    "deployments": deployments.list_deployments_for_namespace(k8s_client, ns["name"])
+                }
+                for ns in namespaces.list_namespaces(k8s_client)
+            ]
+        }
+
+    @router.get("/debug/namespaces")
+    async def debug_namespaces(request: Request):
+        """Эндпоинт для отладки данных неймспейсов."""
+        all_namespaces = namespaces.list_namespaces(k8s_client)
+        allowed_namespaces = await filter_namespaces_by_access(request, all_namespaces)
+
+        return {
+            "all_namespaces": all_namespaces,
+            "allowed_namespaces": allowed_namespaces,
+            "disable_auth": os.environ.get("DISABLE_AUTH", "false").lower() in ["true", "1", "yes", "y"],
+            "user_in_session": request.session.get("user") is not None
+        }
 
     return router

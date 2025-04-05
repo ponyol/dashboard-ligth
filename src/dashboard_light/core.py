@@ -12,7 +12,7 @@ from dashboard_light.web import core as web
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -54,7 +54,6 @@ def start_app() -> Dict[str, Any]:
         logger.error(f"Ошибка при запуске приложения: {str(e)}")
         sys.exit(1)
 
-
 def stop_app(components: Dict[str, Any]) -> None:
     """Остановка всех компонентов приложения.
 
@@ -77,6 +76,8 @@ def stop_app(components: Dict[str, Any]) -> None:
 
     logger.info("Приложение Dashboard-Light остановлено")
 
+    # Явно завершаем процесс
+    sys.exit(0)
 
 def main() -> None:
     """Основная функция для запуска приложения."""
