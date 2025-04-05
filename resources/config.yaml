@@ -30,7 +30,7 @@ auth:
 
 # Настройки UI
 ui:
-  refresh_interval_seconds: 15
+  refresh_interval_seconds: 30
   status_colors:
     deployment:
       healthy: "#28a745"
