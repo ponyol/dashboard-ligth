@@ -77,7 +77,7 @@ export default function Dashboard() {
   // Если идет загрузка и еще нет данных, показываем индикатор загрузки
   if (isLoading && deployments.length === 0) {
     return (
-      <div className="p-6">
+      <div className="p-2 w-full overflow-x-hidden">
         <Loading text="Loading deployments..." />
       </div>
     );
@@ -86,7 +86,7 @@ export default function Dashboard() {
   // Если есть ошибка и нет данных, показываем сообщение об ошибке
   if (error && deployments.length === 0) {
     return (
-      <div className="p-6">
+      <div className="p-2 w-full overflow-x-hidden">
         <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg text-red-700 dark:text-red-400">
           <h3 className="text-lg font-medium mb-2">Error</h3>
           <p>{error}</p>
@@ -104,10 +104,10 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">Deployments Status</h1>
-        <p className="text-gray-600 dark:text-gray-400">
+    <div className="p-2 w-full overflow-x-hidden">
+      <div className="mb-3">
+        <h1 className="text-xl font-bold text-gray-800 dark:text-white mb-1">Deployments Status</h1>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           Monitor your deployments across namespaces and clusters in real-time.
         </p>
       </div>
@@ -122,7 +122,7 @@ export default function Dashboard() {
 
       {/* Сетка деплойментов */}
       {deployments.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
           {deployments.map((deployment) => (
             <div
               key={`${deployment.namespace}-${deployment.name}`}
@@ -136,9 +136,9 @@ export default function Dashboard() {
           ))}
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm text-center">
+        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm text-center">
           <svg
-            className="w-16 h-16 text-gray-400 dark:text-gray-500 mx-auto mb-4"
+            className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-3"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -151,7 +151,7 @@ export default function Dashboard() {
               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
             ></path>
           </svg>
-          <h3 className="text-xl font-medium text-gray-700 dark:text-gray-300 mb-2">No deployments found</h3>
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">No deployments found</h3>
           <p className="text-gray-500 dark:text-gray-400">
             There are no deployments in the selected namespace.
           </p>
@@ -159,8 +159,8 @@ export default function Dashboard() {
       )}
 
       {/* Информация об обновлении и кнопки управления */}
-      <div className="mt-8 flex flex-col sm:flex-row justify-between items-center text-sm text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
-        <div className="mb-3 sm:mb-0">
+      <div className="mt-3 flex flex-col sm:flex-row justify-between items-center text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm">
+        <div className="mb-2 sm:mb-0">
           <span>Auto-refresh every {refreshInterval / 1000} seconds</span>
           <span className="mx-2">•</span>
           <span>Last update: {new Date().toLocaleTimeString()}</span>
@@ -168,10 +168,10 @@ export default function Dashboard() {
         <div className="flex items-center">
           <button
             onClick={handleClearCache}
-            className="inline-flex items-center px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+            className="inline-flex items-center px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
           >
             <svg
-              className="w-4 h-4 mr-1"
+              className="w-3 h-3 mr-1"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -183,10 +183,10 @@ export default function Dashboard() {
           </button>
           <button
             onClick={handleRefresh}
-            className="inline-flex items-center px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors ml-2"
+            className="inline-flex items-center px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors ml-2"
           >
             <svg
-              className={`w-4 h-4 mr-1 ${isLoading ? 'animate-spin' : ''}`}
+              className={`w-3 h-3 mr-1 ${isLoading ? 'animate-spin' : ''}`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"

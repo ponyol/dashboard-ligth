@@ -6,7 +6,7 @@ import './App.css';
 
 function App() {
   const [theme, setTheme] = useState('light');
-  const [menuCollapsed, setMenuCollapsed] = useState(false);
+  const [menuCollapsed, setMenuCollapsed] = useState(true);
 
   // Инициализация темы при загрузке
   useEffect(() => {
@@ -35,9 +35,9 @@ function App() {
   };
 
   return (
-    <div className={`${theme} min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col`}>
+    <div className={`${theme} full-screen-app flex flex-col h-screen w-screen m-0 p-0 bg-gray-100 dark:bg-gray-900 overflow-hidden`}>
       {/* Верхний заголовок */}
-      <div className="bg-blue-800 dark:bg-gray-800 text-white px-4 py-3 flex justify-between items-center shadow-md z-10">
+      <div className="bg-blue-800 dark:bg-gray-800 text-white px-4 py-2 flex justify-between items-center shadow-md z-10 w-full">
         <div className="flex items-center">
           <button
             onClick={toggleMenu}
@@ -70,9 +70,9 @@ function App() {
       </div>
 
       {/* Основной контент с сайдбаром и панелью содержимого */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden w-full">
         <Sidebar collapsed={menuCollapsed} />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">
+        <main className="flex-1 w-full overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">
           <Dashboard />
         </main>
       </div>

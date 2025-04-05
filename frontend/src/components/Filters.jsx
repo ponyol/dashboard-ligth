@@ -17,21 +17,18 @@ export default function Filters({
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm mb-6">
-      <div className="p-4">
-        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-200 mb-3">Filters</h2>
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm mb-3">
+      <div className="p-3">
+        <h2 className="text-md font-semibold text-gray-700 dark:text-gray-200 mb-2">Filters</h2>
 
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
           {/* Селектор неймспейса */}
-          <div className="flex-grow mr-4">
-            <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Namespace
-            </label>
+          <div className="flex-grow mb-2 sm:mb-0 sm:mr-3 w-full sm:w-auto">
             <div className="relative">
               <select
                 value={selectedNamespace}
                 onChange={handleNamespaceChange}
-                className="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                className="block pl-2 pr-8 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">All Namespaces</option>
                 {namespaces.map((ns) => (
@@ -48,10 +45,10 @@ export default function Filters({
             <button
               onClick={onRefresh}
               disabled={isLoading}
-              className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+              className="flex items-center px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
             >
               <svg
-                className={`w-5 h-5 mr-2 ${isLoading ? 'animate-spin' : ''}`}
+                className={`w-4 h-4 mr-1 ${isLoading ? 'animate-spin' : ''}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
