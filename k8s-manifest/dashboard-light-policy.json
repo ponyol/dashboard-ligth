@@ -1,0 +1,39 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "eks:DescribeCluster",
+        "eks:ListClusters"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "eks:ListNodegroups",
+        "eks:DescribeNodegroup"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

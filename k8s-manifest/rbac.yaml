@@ -1,0 +1,58 @@
+---
+# ServiceAccount для Dashboard-Light
+# apiVersion: v1
+# kind: ServiceAccount
+# metadata:
+#   name: dashboard-light
+#   namespace: default # Измени на нужный namespace
+---
+# ClusterRole с необходимыми разрешениями
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dashboard-light-reader
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/status", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+# Основные ресурсы
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "pods/status", "namespaces", "services", "endpoints", "events"]
+  verbs: ["get", "list", "watch"]
+# Доступ к Metrics API
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list", "watch"]
+# # Доступ к Deployments
+# - apiGroups: ["apps"]
+#   resources: ["deployments"]
+#   verbs: ["get", "list", "watch"]
+# - apiGroups: ["apps"]
+#   resources: ["deployments/status"]
+#   verbs: ["get"]
+# # Доступ к Pods
+# - apiGroups: [""]
+#   resources: ["pods"]
+#   verbs: ["get", "list", "watch"]
+# # Доступ к Metrics Server API
+# - apiGroups: ["metrics.k8s.io"]
+#   resources: ["pods"]
+#   verbs: ["get", "list"]
+# Доступ к Namespaces для получения списка доступных NS
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list"]
+---
+# ClusterRoleBinding для связывания ServiceAccount с ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dashboard-light-reader-binding
+subjects:
+- kind: ServiceAccount
+  name: dashboard-light
+  namespace: default # Тот же namespace, что и в ServiceAccount
+roleRef:
+  kind: ClusterRole
+  name: dashboard-light-reader
+  apiGroup: rbac.authorization.k8s.io

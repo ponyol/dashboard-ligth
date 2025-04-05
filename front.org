@@ -1,0 +1,1419 @@
+#+TITLE: Dashboard-Light Frontend Implementation
+#+AUTHOR: Олег
+#+DATE: 2025-04-05
+#+PROPERTY: header-args:html :results output :session *dashboard-light*
+
+* Фронтенд с React и Tailwind CSS
+
+** Структура фронтенда
+
+Организуем фронтенд так, чтобы он легко интегрировался с нашим FastAPI бэкендом:
+
+```
+src/dashboard_light/web/frontend/
+├── index.html              # Основной HTML-файл
+├── assets/                 # Статические ресурсы
+│   └── css/                # CSS-файлы
+│       ├── tailwind.css    # Tailwind CSS
+│       └── custom.css      # Кастомные стили
+├── js/                     # JavaScript-файлы
+│   ├── app.jsx             # Основной компонент приложения
+│   ├── components/         # React-компоненты
+│   ├── hooks/              # React-хуки
+│   └── utils/              # Вспомогательные функции
+```
+
+** Основные файлы
+
+*** resources/public/index.html
+Основной HTML-файл:
+
+#+begin_src html :tangle resources/public/index.html :mkdirp yes
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Dashboard Light - K8s Monitor</title>
+
+      <!-- Tailwind CSS через CDN (для разработки) -->
+      <script src="https://cdn.tailwindcss.com"></script>
+
+      <!-- React и React DOM через CDN (для разработки) -->
+      <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+      <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+
+      <!-- Babel для поддержки JSX (для разработки) -->
+      <script src="https://unpkg.com/babel-standalone@6.26.0/babel.min.js"></script>
+
+      <!-- Кастомные стили -->
+      <link rel="stylesheet" href="/assets/css/custom.css">
+      <script>
+          // Настройка Tailwind
+          tailwind.config = {
+              darkMode: 'class',
+              theme: {
+                  extend: {
+                      colors: {
+                          'healthy': '#28a745',
+                          'progressing': '#ffc107',
+                          'scaled-zero': '#6c757d',
+                          'error': '#dc3545',
+                          'pod-running': '#28a745',
+                          'pod-succeeded': '#17a2b8',
+                          'pod-pending': '#ffc107',
+                          'pod-failed': '#dc3545',
+                          'pod-terminating': '#6c757d',
+                      }
+                  }
+              }
+          }
+      </script>
+  </head>
+  <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
+      <div id="root"></div>
+
+      <!-- Отладочный скрипт -->
+      <script type="text/babel" src="/js/debug.jsx"></script>
+      <!-- Загрузка компонентов -->
+      <script type="text/babel" src="/js/utils/api.js"></script>
+      <script type="text/babel" src="/js/utils/theme.js"></script>
+      <script type="text/babel" src="/js/hooks/useK8sApi.js"></script>
+      <script type="text/babel" src="/js/hooks/useInterval.js"></script>
+      <script type="text/babel" src="/js/components/StatusBadge.jsx"></script>
+      <script type="text/babel" src="/js/components/Navbar.jsx"></script>
+      <script type="text/babel" src="/js/components/Sidebar.jsx"></script>
+      <script type="text/babel" src="/js/components/DeploymentCard.jsx"></script>
+      <script type="text/babel" src="/js/components/DeploymentGrid.jsx"></script>
+      <script type="text/babel" src="/js/components/Filters.jsx"></script>
+      <script type="text/babel" src="/js/components/Loading.jsx"></script>
+      <script type="text/babel" src="/js/components/Dashboard.jsx"></script>
+      <script type="text/babel" src="/js/app.jsx"></script>
+  <script>
+      console.log("Прямая проверка DOM ready");
+      document.addEventListener('DOMContentLoaded', function() {
+          console.log("DOMContentLoaded сработал");
+
+          // Попробуем напрямую вызвать рендеринг без загрузки всех скриптов
+          var rootElement = document.getElementById('root');
+          rootElement.innerHTML = '<div class="p-4 bg-blue-100 text-blue-800 rounded">Если вы видите это сообщение, DOM готов, но React не рендерится</div>';
+          console.log("Проверка HTML вставлена");
+
+          setTimeout(function() {
+              console.log("Таймаут 500ms сработал, пробуем рендеринг React");
+              try {
+                  // Проверяем доступность React и ReactDOM
+                  if (typeof React !== 'undefined' && typeof ReactDOM !== 'undefined') {
+                      ReactDOM.render(
+                          React.createElement('div', { className: 'p-4 bg-green-100 text-green-800 rounded' },
+                              'React рендеринг работает!'
+                          ),
+                          rootElement
+                      );
+                  } else {
+                      rootElement.innerHTML += '<div class="mt-2 p-4 bg-red-100 text-red-800 rounded">React или ReactDOM не определены!</div>';
+                  }
+              } catch (e) {
+                  console.error("Ошибка при рендеринге React:", e);
+                  rootElement.innerHTML += '<div class="mt-2 p-4 bg-red-100 text-red-800 rounded">Ошибка React: ' + e.message + '</div>';
+              }
+          }, 500);
+      });
+  </script>
+  </body>
+  </html>
+#+end_src
+
+*** COMMENT resources/public/index.html
+Основной HTML-файл:
+
+#+begin_src html :tangle resources/public/index.html :mkdirp yes
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Dashboard Light - K8s Monitor</title>
+
+      <!-- Tailwind CSS через CDN (для разработки) -->
+      <script src="https://cdn.tailwindcss.com"></script>
+
+      <!-- React и React DOM через CDN (для разработки) -->
+      <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+      <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+
+      <!-- Babel для поддержки JSX (для разработки) -->
+      <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+      <!-- Кастомные стили -->
+      <link rel="stylesheet" href="/assets/css/custom.css">
+      <script>
+          // Настройка Tailwind
+          tailwind.config = {
+              darkMode: 'class',
+              theme: {
+                  extend: {
+                      colors: {
+                          'healthy': '#28a745',
+                          'progressing': '#ffc107',
+                          'scaled-zero': '#6c757d',
+                          'error': '#dc3545',
+                          'pod-running': '#28a745',
+                          'pod-succeeded': '#17a2b8',
+                          'pod-pending': '#ffc107',
+                          'pod-failed': '#dc3545',
+                          'pod-terminating': '#6c757d',
+                      }
+                  }
+              }
+          }
+      </script>
+  </head>
+  <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
+      <div id="root"></div>
+
+      <!-- Отладочный скрипт -->
+      <script type="text/babel" src="/js/debug.jsx"></script>
+      <!-- Загрузка компонентов -->
+      <script type="text/babel" src="/js/utils/api.js"></script>
+      <script type="text/babel" src="/js/utils/theme.js"></script>
+      <script type="text/babel" src="/js/hooks/useK8sApi.js"></script>
+      <script type="text/babel" src="/js/hooks/useInterval.js"></script>
+      <script type="text/babel" src="/js/components/StatusBadge.jsx"></script>
+      <script type="text/babel" src="/js/components/Navbar.jsx"></script>
+      <script type="text/babel" src="/js/components/Sidebar.jsx"></script>
+      <script type="text/babel" src="/js/components/DeploymentCard.jsx"></script>
+      <script type="text/babel" src="/js/components/DeploymentGrid.jsx"></script>
+      <script type="text/babel" src="/js/components/Filters.jsx"></script>
+      <script type="text/babel" src="/js/components/Loading.jsx"></script>
+      <script type="text/babel" src="/js/components/Dashboard.jsx"></script>
+      <script type="text/babel" src="/js/app.jsx"></script>
+  </body>
+  </html>
+#+end_src
+
+*** resources/public/assets/css/custom.css
+Кастомные стили:
+
+#+begin_src css :tangle resources/public/assets/css/custom.css :mkdirp yes
+/* Дополнительные стили, которые не покрываются Tailwind CSS */
+
+/* Анимация для индикатора загрузки */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Затемнение для неактивных карточек в режиме фокуса */
+.focus-mode-inactive {
+  opacity: 0.3;
+  filter: grayscale(70%);
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.focus-mode-inactive:hover {
+  opacity: 0.7;
+  filter: grayscale(30%);
+}
+
+/* Стили для мини-графиков ресурсов */
+.resource-chart {
+  height: 30px;
+  width: 100%;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.resource-chart-bar {
+  height: 100%;
+  background-color: rgba(40, 167, 69, 0.5);
+  position: absolute;
+  top: 0;
+  left: 0;
+  transition: width 0.3s ease;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 768px) {
+  .sidebar-collapsed {
+    width: 60px;
+  }
+
+  .sidebar-collapsed .sidebar-text {
+    display: none;
+  }
+
+  .content-with-sidebar {
+    margin-left: 60px;
+  }
+}
+#+end_src
+
+*** resources/public/test.html
+Test HTML-файл:
+
+#+begin_src html :tangle resources/public/test.html :mkdirp yes
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Dashboard Light - Simple Test</title>
+  </head>
+  <body>
+      <div id="root">Исходное содержимое</div>
+
+      <script>
+          console.log("Встроенный скрипт загружен");
+          document.addEventListener('DOMContentLoaded', function() {
+              console.log("DOM загружен");
+              document.getElementById('root').innerHTML = "DOM загружен успешно!";
+          });
+
+          // Также попробуем другое событие
+          window.onload = function() {
+              console.log("window.onload сработал");
+              document.getElementById('root').innerHTML += "<br>window.onload сработал!";
+          };
+      </script>
+  </body>
+  </html>
+#+end_src
+
+*** resources/public/react-test.html
+Test HTML-файл:
+
+#+begin_src html :tangle resources/public/react-test.html :mkdirp yes
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Dashboard Light - React Test</title>
+
+      <!-- React и ReactDOM -->
+      <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+      <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  </head>
+  <body>
+      <div id="root">Загрузка...</div>
+
+      <script>
+          console.log("Скрипт загружен");
+
+          // Создаем React-элемент без JSX
+          function App() {
+              return React.createElement('div', {
+                  style: {
+                      padding: '20px',
+                      backgroundColor: 'blue',
+                      color: 'white'
+                  }
+              }, 'Это работает!');
+          }
+
+          document.addEventListener('DOMContentLoaded', function() {
+              console.log("DOM загружен");
+              try {
+                  ReactDOM.render(
+                      React.createElement(App),
+                      document.getElementById('root')
+                  );
+                  console.log("React рендеринг выполнен");
+              } catch (error) {
+                  console.error("Ошибка React:", error);
+                  document.getElementById('root').innerHTML = "Ошибка: " + error.message;
+              }
+          });
+      </script>
+  </body>
+  </html>
+#+end_src
+
+*** resources/public/simple-app.html
+Simple HTML-файл:
+
+#+begin_src html :tangle resources/public/simple-app.html :mkdirp yes
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Dashboard Light - Simple App</title>
+
+      <!-- Tailwind -->
+      <script src="https://cdn.tailwindcss.com"></script>
+
+      <!-- React и ReactDOM -->
+      <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+      <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+  </head>
+  <body class="bg-gray-50">
+      <div id="root">Загрузка...</div>
+
+      <script>
+          // Простая версия Dashboard без JSX
+          function SimpleDashboard() {
+              return React.createElement('div', { className: 'p-8' },
+                  React.createElement('h1', { className: 'text-2xl font-bold mb-4' }, 'Dashboard Light'),
+                  React.createElement('p', { className: 'text-gray-600' },
+                      'Упрощенная версия дашборда без JSX работает!'
+                  ),
+                  React.createElement('div', {
+                      className: 'mt-4 p-4 bg-blue-500 text-white rounded',
+                      onClick: function() { alert('Кнопка работает!'); }
+                  }, 'Тестовая кнопка')
+              );
+          }
+
+          // Рендеринг приложения
+          document.addEventListener('DOMContentLoaded', function() {
+              console.log("DOM загружен, рендерим без JSX");
+              ReactDOM.render(
+                  React.createElement(SimpleDashboard),
+                  document.getElementById('root')
+              );
+          });
+      </script>
+  </body>
+  </html>
+#+end_src
+
+** Утилиты и хуки
+
+*** resources/public/js/utils/api.js
+Функции для работы с API:
+
+#+begin_src js :tangle resources/public/js/utils/api.js :mkdirp yes
+/**
+ * Модуль для работы с API
+ */
+
+// Базовый URL для API
+const API_BASE_URL = '/api';
+
+/**
+ * Выполнение запроса к API с обработкой ошибок
+ * @param {string} endpoint - Эндпоинт API
+ * @param {Object} options - Опции для fetch
+ * @returns {Promise<Object>} - Данные от API
+ */
+const fetchApi = async (endpoint, options = {}) => {
+  try {
+    const url = `${API_BASE_URL}${endpoint}`;
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    // Если статус не OK (200-299)
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || `HTTP Error ${response.status}`);
+    }
+
+    // Для 204 No Content
+    if (response.status === 204) {
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error(`API Error (${endpoint}):`, error);
+    throw error;
+  }
+};
+
+/**
+ * API для работы с Kubernetes
+ */
+const k8sApi = {
+  /**
+   * Получение списка неймспейсов
+   * @returns {Promise<Object>} - Список неймспейсов
+   */
+  getNamespaces: () => fetchApi('/k8s/namespaces'),
+
+  /**
+   * Получение списка деплойментов
+   * @param {string} namespace - Фильтр по неймспейсу (опционально)
+   * @returns {Promise<Object>} - Список деплойментов
+   */
+  getDeployments: (namespace = null) => {
+    const query = namespace ? `?namespace=${namespace}` : '';
+    return fetchApi(`/k8s/deployments${query}`);
+  },
+
+  /**
+   * Получение информации о деплойменте
+   * @param {string} namespace - Имя неймспейса
+   * @param {string} name - Имя деплоймента
+   * @returns {Promise<Object>} - Информация о деплойменте
+   */
+  getDeployment: (namespace, name) => fetchApi(`/k8s/deployments/${namespace}/${name}`),
+
+  /**
+   * Получение списка подов
+   * @param {string} namespace - Фильтр по неймспейсу (опционально)
+   * @returns {Promise<Object>} - Список подов
+   */
+  getPods: (namespace = null) => {
+    const query = namespace ? `?namespace=${namespace}` : '';
+    return fetchApi(`/k8s/pods${query}`);
+  },
+
+  /**
+   * Получение информации о поде
+   * @param {string} namespace - Имя неймспейса
+   * @param {string} name - Имя пода
+   * @returns {Promise<Object>} - Информация о поде
+   */
+  getPod: (namespace, name) => fetchApi(`/k8s/pods/${namespace}/${name}`),
+
+  /**
+   * Очистка кэша API
+   * @returns {Promise<Object>} - Результат операции
+   */
+  clearCache: () => fetchApi('/k8s/cache/clear', { method: 'POST' }),
+};
+
+/**
+ * API для работы с аутентификацией
+ */
+const authApi = {
+  /**
+   * Получение информации о текущем пользователе
+   * @returns {Promise<Object>} - Информация о пользователе
+   */
+  getCurrentUser: () => fetchApi('/auth/user').catch(() => null),
+
+  /**
+   * Выход из системы
+   * @returns {Promise<void>}
+   */
+  logout: () => fetchApi('/auth/logout'),
+};
+
+/**
+ * API для проверки состояния здоровья
+ */
+const healthApi = {
+  /**
+   * Проверка состояния здоровья приложения
+   * @returns {Promise<Object>} - Информация о состоянии
+   */
+  check: () => fetchApi('/health'),
+};
+
+// Экспорт API для использования в компонентах
+window.api = {
+  k8s: k8sApi,
+  auth: authApi,
+  health: healthApi,
+};
+#+end_src
+
+*** resources/public/js/utils/theme.js
+Утилиты для работы с темой:
+
+#+begin_src js :tangle resources/public/js/utils/theme.js :mkdirp yes
+/**
+ * Модуль для управления темой приложения
+ */
+
+// Ключ для сохранения темы в localStorage
+const THEME_KEY = 'dashboard-light-theme';
+
+/**
+ * Класс для темной темы
+ * @type {string}
+ */
+const DARK_CLASS = 'dark';
+
+/**
+ * Получение текущей темы
+ * @returns {string} - 'dark' или 'light'
+ */
+const getTheme = () => {
+  // Проверка localStorage
+  const savedTheme = localStorage.getItem(THEME_KEY);
+
+  if (savedTheme) {
+    return savedTheme;
+  }
+
+  // Проверка системных настроек
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark';
+  }
+
+  return 'light';
+};
+
+/**
+ * Установка темы
+ * @param {string} theme - 'dark' или 'light'
+ */
+const setTheme = (theme) => {
+  if (theme === 'dark') {
+    document.documentElement.classList.add(DARK_CLASS);
+  } else {
+    document.documentElement.classList.remove(DARK_CLASS);
+  }
+
+  // Сохранение в localStorage
+  localStorage.setItem(THEME_KEY, theme);
+};
+
+/**
+ * Переключение темы
+ * @returns {string} - Новая тема ('dark' или 'light')
+ */
+const toggleTheme = () => {
+  const currentTheme = getTheme();
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+  setTheme(newTheme);
+  return newTheme;
+};
+
+// Инициализация темы при загрузке
+window.addEventListener('DOMContentLoaded', () => {
+  setTheme(getTheme());
+});
+
+// Экспорт функций для использования в компонентах
+window.theme = {
+  get: getTheme,
+  set: setTheme,
+  toggle: toggleTheme,
+};
+#+end_src
+
+*** resources/public/js/hooks/useK8sApi.js
+Хук для работы с Kubernetes API:
+
+#+begin_src js :tangle resources/public/js/hooks/useK8sApi.js :mkdirp yes
+/**
+ * Хук для работы с Kubernetes API
+ */
+function useK8sApi() {
+  const [namespaces, setNamespaces] = React.useState([]);
+  const [deployments, setDeployments] = React.useState([]);
+  const [selectedNamespace, setSelectedNamespace] = React.useState('');
+  const [isLoading, setIsLoading] = React.useState(false);
+  const [error, setError] = React.useState(null);
+
+  // Загрузка списка неймспейсов
+  const fetchNamespaces = React.useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const data = await window.api.k8s.getNamespaces();
+      setNamespaces(data.items || []);
+
+      // Если выбранного неймспейса нет в списке, сбрасываем его
+      if (selectedNamespace && !data.items.some(ns => ns.name === selectedNamespace)) {
+        setSelectedNamespace('');
+      }
+    } catch (err) {
+      setError(err.message || 'Ошибка при загрузке неймспейсов');
+      console.error('Ошибка при загрузке неймспейсов:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedNamespace]);
+
+  // Загрузка списка деплойментов
+  const fetchDeployments = React.useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const data = await window.api.k8s.getDeployments(selectedNamespace || null);
+      setDeployments(data.items || []);
+    } catch (err) {
+      setError(err.message || 'Ошибка при загрузке деплойментов');
+      console.error('Ошибка при загрузке деплойментов:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedNamespace]);
+
+  // Обработчик изменения выбранного неймспейса
+  const handleNamespaceChange = React.useCallback((namespace) => {
+    setSelectedNamespace(namespace);
+  }, []);
+
+  // Обработчик очистки кэша
+  const handleClearCache = React.useCallback(async () => {
+    try {
+      setIsLoading(true);
+      await window.api.k8s.clearCache();
+      // После очистки кэша обновляем данные
+      await fetchNamespaces();
+      await fetchDeployments();
+    } catch (err) {
+      setError(err.message || 'Ошибка при очистке кэша');
+      console.error('Ошибка при очистке кэша:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchNamespaces, fetchDeployments]);
+
+  return {
+    namespaces,
+    deployments,
+    selectedNamespace,
+    isLoading,
+    error,
+    fetchNamespaces,
+    fetchDeployments,
+    handleNamespaceChange,
+    handleClearCache,
+  };
+}
+#+end_src
+
+*** resources/public/js/hooks/useInterval.js
+Хук для периодического выполнения функций:
+
+#+begin_src js :tangle resources/public/js/hooks/useInterval.js :mkdirp yes
+/**
+ * Хук для периодического выполнения функций
+ * @param {Function} callback - Функция для выполнения
+ * @param {number} delay - Интервал в миллисекундах
+ */
+function useInterval(callback, delay) {
+  const savedCallback = React.useRef();
+
+  // Сохраняем новый колбэк
+  React.useEffect(() => {
+    savedCallback.current = callback;
+  }, [callback]);
+
+  // Устанавливаем интервал
+  React.useEffect(() => {
+    function tick() {
+      savedCallback.current();
+    }
+
+    if (delay !== null) {
+      const id = setInterval(tick, delay);
+      return () => clearInterval(id);
+    }
+  }, [delay]);
+}
+#+end_src
+
+*** resources/public/js/debug.jsx
+Debug:
+
+#+begin_src js :tangle resources/public/js/debug.jsx :mkdirp yes
+  // resources/public/js/debug.jsx
+  console.log("Debug script loaded");
+
+  function DebugComponent() {
+    return <div className="p-10 bg-blue-500 text-white font-bold">Тестовый компонент работает!</div>;
+  }
+
+  // Попробуем отрендерить этот простой компонент
+  document.addEventListener('DOMContentLoaded', () => {
+    console.log("DOM загружен, пытаемся рендерить");
+    ReactDOM.render(<DebugComponent />, document.getElementById('root'));
+  });
+#+end_src
+
+** Компоненты
+
+*** resources/public/js/components/StatusBadge.jsx
+Компонент для отображения статуса:
+
+#+begin_src jsx :tangle resources/public/js/components/StatusBadge.jsx :mkdirp yes
+/**
+ * Компонент для отображения статуса
+ * @param {Object} props - Свойства компонента
+ * @param {string} props.status - Статус (healthy, progressing, scaled_zero, error, etc.)
+ * @param {string} props.type - Тип (deployment, pod)
+ */
+function StatusBadge({ status, type = 'deployment' }) {
+  // Цвета и названия для разных статусов
+  const statusConfig = {
+    deployment: {
+      healthy: { color: 'bg-healthy text-white', label: 'Healthy' },
+      progressing: { color: 'bg-progressing text-gray-900', label: 'Progressing' },
+      scaled_zero: { color: 'bg-scaled-zero text-white', label: 'Scaled to Zero' },
+      error: { color: 'bg-error text-white', label: 'Error' },
+    },
+    pod: {
+      running: { color: 'bg-pod-running text-white', label: 'Running' },
+      succeeded: { color: 'bg-pod-succeeded text-white', label: 'Succeeded' },
+      pending: { color: 'bg-pod-pending text-gray-900', label: 'Pending' },
+      failed: { color: 'bg-pod-failed text-white', label: 'Failed' },
+      terminating: { color: 'bg-pod-terminating text-white', label: 'Terminating' },
+    },
+  };
+
+  // Получение конфигурации для статуса
+  const config = statusConfig[type]?.[status] || {
+    color: 'bg-gray-500 text-white',
+    label: status || 'Unknown'
+  };
+
+  return (
+    <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${config.color}`}>
+      {config.label}
+    </span>
+  );
+}
+#+end_src
+
+*** resources/public/js/components/Navbar.jsx
+Верхняя панель навигации:
+
+#+begin_src jsx :tangle resources/public/js/components/Navbar.jsx :mkdirp yes
+/**
+ * Компонент верхней панели навигации
+ * @param {Object} props - Свойства компонента
+ * @param {Function} props.onToggleTheme - Обработчик переключения темы
+ */
+function Navbar({ onToggleTheme }) {
+  const [currentTheme, setCurrentTheme] = React.useState(window.theme.get());
+  const [user, setUser] = React.useState(null);
+
+  // Проверка аутентификации пользователя
+  React.useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const userData = await window.api.auth.getCurrentUser();
+        setUser(userData);
+      } catch (error) {
+        console.log('Пользователь не аутентифицирован');
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  // Обработчик выхода из системы
+  const handleLogout = async () => {
+    try {
+      await window.api.auth.logout();
+      setUser(null);
+      window.location.reload();
+    } catch (error) {
+      console.error('Ошибка при выходе из системы:', error);
+    }
+  };
+
+  // Обработчик переключения темы
+  const handleThemeToggle = () => {
+    const newTheme = window.theme.toggle();
+    setCurrentTheme(newTheme);
+    if (onToggleTheme) {
+      onToggleTheme(newTheme);
+    }
+  };
+
+  return (
+    <nav className="bg-blue-800 dark:bg-gray-800 text-white px-4 py-3 flex justify-between items-center shadow-md">
+      <div className="flex items-center">
+        <h1 className="text-xl font-bold">Dashboard Light</h1>
+        <span className="ml-2 text-sm bg-blue-700 dark:bg-gray-700 px-2 py-1 rounded">K8s Monitor</span>
+      </div>
+
+      <div className="flex items-center space-x-4">
+        {/* Кнопка переключения темы */}
+        <button
+          onClick={handleThemeToggle}
+          className="bg-blue-700 dark:bg-gray-700 hover:bg-blue-600 dark:hover:bg-gray-600 rounded p-2 transition-colors"
+          title={currentTheme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+        >
+          {currentTheme === 'dark' ? (
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" fillRule="evenodd" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+            </svg>
+          )}
+        </button>
+
+        {/* Информация о пользователе */}
+        {user ? (
+          <div className="flex items-center">
+            <span className="mr-2">{user.name || user.username}</span>
+            <button
+              onClick={handleLogout}
+              className="bg-blue-700 dark:bg-gray-700 hover:bg-blue-600 dark:hover:bg-gray-600 rounded py-1 px-3 transition-colors text-sm"
+            >
+              Выйти
+            </button>
+          </div>
+        ) : (
+          <a
+            href="/api/auth/login"
+            className="bg-blue-700 dark:bg-gray-700 hover:bg-blue-600 dark:hover:bg-gray-600 rounded py-1 px-3 transition-colors text-sm"
+          >
+            Войти
+          </a>
+        )}
+      </div>
+    </nav>
+  );
+}
+#+end_src
+
+*** resources/public/js/components/Sidebar.jsx
+Боковая панель навигации:
+
+#+begin_src jsx :tangle resources/public/js/components/Sidebar.jsx :mkdirp yes
+/**
+ * Компонент боковой панели
+ * @param {Object} props - Свойства компонента
+ * @param {string} props.activeTab - Активный таб
+ * @param {Function} props.onTabChange - Обработчик смены таба
+ */
+function Sidebar({ activeTab, onTabChange }) {
+  const [collapsed, setCollapsed] = React.useState(false);
+
+  // Меню навигации
+  const menu = [
+    { id: 'status', label: 'Status', icon: 'M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2' },
+    { id: 'pods', label: 'Pods', icon: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4' },
+    { id: 'settings', label: 'Settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
+  ];
+
+  // Функция для отображения иконки
+  const renderIcon = (pathData) => (
+    <svg className={`w-5 h-5 ${collapsed ? 'mx-auto' : 'mr-3'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d={pathData}></path>
+    </svg>
+  );
+
+  return (
+    <div
+      className={`fixed left-0 top-14 h-full bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 shadow-md transition-all duration-300 ${
+        collapsed ? 'w-16' : 'w-56'
+      }`}
+    >
+      {/* Кнопка сворачивания/разворачивания */}
+      <button
+        className="absolute -right-3 top-10 bg-white dark:bg-gray-800 rounded-full p-1 shadow-md"
+        onClick={() => setCollapsed(!collapsed)}
+      >
+        <svg
+          className={`w-4 h-4 text-gray-600 dark:text-gray-400 transform transition-transform ${collapsed ? 'rotate-0' : 'rotate-180'}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+        </svg>
+      </button>
+
+      {/* Меню навигации */}
+      <nav className="py-6">
+        <ul>
+          {menu.map(item => (
+            <li key={item.id}>
+              <button
+                className={`w-full flex items-center py-3 px-4 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                  activeTab === item.id ? 'text-blue-600 dark:text-blue-400 font-medium bg-blue-50 dark:bg-gray-700' : ''
+                }`}
+                onClick={() => onTabChange(item.id)}
+              >
+                {renderIcon(item.icon)}
+                {!collapsed && <span className="sidebar-text">{item.label}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    </div>
+  );
+}
+#+end_src
+
+*** resources/public/js/components/Filters.jsx
+Компонент фильтров:
+
+#+begin_src jsx :tangle resources/public/js/components/Filters.jsx :mkdirp yes
+/**
+ * Компонент фильтров для дашборда
+ * @param {Object} props - Свойства компонента
+ * @param {Array} props.namespaces - Список неймспейсов
+ * @param {string} props.selectedNamespace - Выбранный неймспейс
+ * @param {Function} props.onNamespaceChange - Обработчик смены неймспейса
+ * @param {Function} props.onRefresh - Обработчик обновления данных
+ * @param {boolean} props.isLoading - Флаг загрузки
+ */
+function Filters({ namespaces, selectedNamespace, onNamespaceChange, onRefresh, isLoading }) {
+  // Обработчик изменения выбранного неймспейса
+  const handleNamespaceChange = (e) => {
+    onNamespaceChange(e.target.value);
+  };
+
+  return (
+    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm mb-6 flex items-center">
+      <div className="flex-grow">
+        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
+          Namespace
+        </label>
+        <div className="relative">
+          <select
+            value={selectedNamespace}
+            onChange={handleNamespaceChange}
+            className="block w-full pl-3 pr-10 py-2 text-base border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            style={{ maxWidth: '300px' }}
+          >
+            <option value="">All Namespaces</option>
+            {namespaces.map((ns) => (
+              <option key={ns.name} value={ns.name}>
+                {ns.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <button
+          onClick={onRefresh}
+          disabled={isLoading}
+          className="ml-4 p-2 bg-blue-50 dark:bg-gray-700 rounded-md hover:bg-blue-100 dark:hover:bg-gray-600 focus:outline-none transition-colors"
+          title="Refresh"
+        >
+          <svg
+            className={`w-5 h-5 text-blue-600 dark:text-blue-400 ${isLoading ? 'animate-spin' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            ></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+#+end_src
+
+*** resources/public/js/components/Loading.jsx
+Компонент индикатора загрузки:
+
+#+begin_src jsx :tangle resources/public/js/components/Loading.jsx :mkdirp yes
+/**
+ * Компонент индикатора загрузки
+ * @param {Object} props - Свойства компонента
+ * @param {string} props.text - Текст сообщения загрузки
+ */
+function Loading({ text = "Loading..." }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12">
+      <svg
+        className="w-10 h-10 text-blue-600 dark:text-blue-400 animate-spin"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+        ></path>
+      </svg>
+      <p className="mt-3 text-gray-600 dark:text-gray-400">{text}</p>
+    </div>
+  );
+}
+#+end_src
+
+*** resources/public/js/components/DeploymentCard.jsx
+Компонент карточки деплоймента:
+
+#+begin_src jsx :tangle resources/public/js/components/DeploymentCard.jsx :mkdirp yes
+/**
+ * Компонент карточки деплоймента
+ * @param {Object} props - Свойства компонента
+ * @param {Object} props.deployment - Данные о деплойменте
+ * @param {boolean} props.isFocused - Находится ли карточка в фокусе
+ * @param {boolean} props.focusModeEnabled - Включен ли режим фокуса
+ * @param {Function} props.onFocusToggle - Обработчик переключения фокуса
+ */
+function DeploymentCard({ deployment, isFocused, focusModeEnabled, onFocusToggle }) {
+  // Определение статусного класса по статусу деплоймента
+  const getStatusClass = (status) => {
+    switch (status) {
+      case 'healthy': return 'border-healthy';
+      case 'progressing': return 'border-progressing';
+      case 'scaled_zero': return 'border-scaled-zero';
+      case 'error': return 'border-error';
+      default: return 'border-gray-300 dark:border-gray-600';
+    }
+  };
+
+  // Определение класса для режима фокуса
+  const focusClass = focusModeEnabled && !isFocused ? 'focus-mode-inactive' : '';
+
+  const statusClass = getStatusClass(deployment.status);
+
+  return (
+    <div
+      className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border-l-4 ${statusClass} ${focusClass} transition-all duration-300 hover:shadow-md`}
+      onClick={() => onFocusToggle && onFocusToggle(deployment)}
+    >
+      <div className="p-4">
+        <div className="flex justify-between items-start mb-2">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 truncate" title={deployment.name}>
+            {deployment.name}
+          </h3>
+          <StatusBadge status={deployment.status} type="deployment" />
+        </div>
+
+        <div className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+          Namespace: <span className="font-medium">{deployment.namespace}</span>
+        </div>
+
+        <div className="flex justify-between mb-2">
+          <div className="text-sm">
+            <span className="text-gray-500 dark:text-gray-400">Replicas: </span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">
+              {deployment.replicas.ready}/{deployment.replicas.desired}
+            </span>
+          </div>
+
+          {deployment.main_container && (
+            <div className="text-sm truncate" style={{ maxWidth: '60%' }} title={deployment.main_container.image_tag}>
+              <span className="text-gray-500 dark:text-gray-400">Tag: </span>
+              <span className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-1 py-0.5">
+                {deployment.main_container.image_tag}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Отображение ресурсов, если есть поды */}
+        {deployment.pods && deployment.pods.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Resources: {deployment.pods.length} pod{deployment.pods.length !== 1 ? 's' : ''}
+            </div>
+            {deployment.pods.slice(0, 2).map((pod) => {
+              const metrics = pod.metrics;
+              if (!metrics) return null;
+
+              const totalUsage = {
+                cpu: metrics.containers.reduce((sum, container) => {
+                  return sum + (container.resource_usage.cpu_millicores || 0);
+                }, 0),
+                memory: metrics.containers.reduce((sum, container) => {
+                  return sum + (container.resource_usage.memory_mb || 0);
+                }, 0)
+              };
+
+              return (
+                <div key={pod.name} className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                  <div className="flex justify-between items-center">
+                    <span className="truncate" style={{ maxWidth: '180px' }} title={pod.name}>
+                      {pod.name}
+                    </span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-xs ${
+                      pod.phase.toLowerCase() === 'running'
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                        : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                    }`}>
+                      {pod.phase}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <div title={`CPU: ${totalUsage.cpu} millicores`}>
+                      CPU: {totalUsage.cpu} m
+                    </div>
+                    <div title={`Memory: ${totalUsage.memory.toFixed(1)} MB`}>
+                      Mem: {totalUsage.memory.toFixed(1)} MB
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {deployment.pods.length > 2 && (
+              <div className="text-xs text-blue-600 dark:text-blue-400 mt-1 text-center">
+                + {deployment.pods.length - 2} more pod(s)
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+#+end_src
+
+*** resources/public/js/components/DeploymentGrid.jsx
+Компонент сетки деплойментов:
+
+#+begin_src jsx :tangle resources/public/js/components/DeploymentGrid.jsx :mkdirp yes
+/**
+ * Компонент сетки деплойментов
+ * @param {Object} props - Свойства компонента
+ * @param {Array} props.deployments - Список деплойментов
+ * @param {boolean} props.isLoading - Флаг загрузки
+ * @param {string} props.error - Сообщение об ошибке
+ */
+function DeploymentGrid({ deployments, isLoading, error }) {
+  const [focusedDeployment, setFocusedDeployment] = React.useState(null);
+
+  // Обработчик переключения фокуса
+  const handleFocusToggle = (deployment) => {
+    if (focusedDeployment && focusedDeployment.name === deployment.name) {
+      setFocusedDeployment(null);
+    } else {
+      setFocusedDeployment(deployment);
+    }
+  };
+
+  // Если идет загрузка, показываем индикатор
+  if (isLoading) {
+    return <Loading text="Loading deployments..." />;
+  }
+
+  // Если есть ошибка, показываем сообщение
+  if (error) {
+    return (
+      <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg text-red-700 dark:text-red-400">
+        <h3 className="text-lg font-medium mb-2">Error</h3>
+        <p>{error}</p>
+      </div>
+    );
+  }
+
+  // Если нет деплойментов, показываем сообщение
+  if (!deployments || deployments.length === 0) {
+    return (
+      <div className="bg-gray-50 dark:bg-gray-800 p-6 rounded-lg text-center">
+        <svg
+          className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-3"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+          ></path>
+        </svg>
+        <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-1">No deployments found</h3>
+        <p className="text-gray-500 dark:text-gray-400">
+          There are no deployments in the selected namespace.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {deployments.map((deployment) => (
+        <DeploymentCard
+          key={`${deployment.namespace}-${deployment.name}`}
+          deployment={deployment}
+          isFocused={focusedDeployment && focusedDeployment.name === deployment.name}
+          focusModeEnabled={!!focusedDeployment}
+          onFocusToggle={handleFocusToggle}
+        />
+      ))}
+    </div>
+  );
+}
+#+end_src
+
+*** resources/public/js/components/Dashboard.jsx
+Основной компонент дашборда:
+
+#+begin_src jsx :tangle resources/public/js/components/Dashboard.jsx :mkdirp yes
+/**
+ * Основной компонент дашборда
+ */
+function Dashboard() {
+  const {
+    namespaces,
+    deployments,
+    selectedNamespace,
+    isLoading,
+    error,
+    fetchNamespaces,
+    fetchDeployments,
+    handleNamespaceChange,
+    handleClearCache,
+  } = useK8sApi();
+
+  // Интервал обновления данных в миллисекундах (15 секунд)
+  const refreshInterval = 15000;
+
+  // Первоначальная загрузка данных
+  React.useEffect(() => {
+    fetchNamespaces();
+  }, [fetchNamespaces]);
+
+  // Загрузка деплойментов при изменении выбранного неймспейса
+  React.useEffect(() => {
+    fetchDeployments();
+  }, [fetchDeployments, selectedNamespace]);
+
+  // Периодическое обновление данных
+  useInterval(() => {
+    fetchDeployments();
+  }, refreshInterval);
+
+  // Обработчик обновления данных
+  const handleRefresh = React.useCallback(() => {
+    fetchNamespaces();
+    fetchDeployments();
+  }, [fetchNamespaces, fetchDeployments]);
+
+  return (
+    <div className="p-6">
+      <Filters
+        namespaces={namespaces}
+        selectedNamespace={selectedNamespace}
+        onNamespaceChange={handleNamespaceChange}
+        onRefresh={handleRefresh}
+        isLoading={isLoading}
+      />
+
+      <DeploymentGrid
+        deployments={deployments}
+        isLoading={isLoading}
+        error={error}
+      />
+
+      {/* Отображение времени последнего обновления и кнопки очистки кэша */}
+      <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400 flex justify-center items-center">
+        <span>
+          Auto-refresh every {refreshInterval / 1000} seconds
+        </span>
+        <button
+          onClick={handleClearCache}
+          className="ml-4 underline hover:text-blue-600 dark:hover:text-blue-400"
+        >
+          Clear cache
+        </button>
+      </div>
+    </div>
+  );
+}
+#+end_src
+
+*** resources/public/js/app.jsx
+Основной компонент приложения:
+
+#+begin_src js :tangle resources/public/js/app.jsx :mkdirp yes
+  /**
+   ,* Основной компонент приложения
+   ,*/
+  function App() {
+    const [activeTab, setActiveTab] = React.useState('status');
+    const [theme, setTheme] = React.useState(window.theme.get());
+
+    // Обработчик смены таба
+    const handleTabChange = (tabId) => {
+      setActiveTab(tabId);
+    };
+
+    // Обработчик смены темы
+    const handleThemeChange = (newTheme) => {
+      setTheme(newTheme);
+    };
+
+    // Определение контента в зависимости от активного таба
+    const renderContent = () => {
+      switch (activeTab) {
+        case 'status':
+          return <Dashboard />;
+        case 'pods':
+          return (
+            <div className="p-6">
+              <h2 className="text-xl font-medium mb-4">Pods</h2>
+              <p className="text-gray-600 dark:text-gray-400">
+                This page is under development. Please check back later.
+              </p>
+            </div>
+          );
+        case 'settings':
+          return (
+            <div className="p-6">
+              <h2 className="text-xl font-medium mb-4">Settings</h2>
+              <p className="text-gray-600 dark:text-gray-400">
+                This page is under development. Please check back later.
+              </p>
+            </div>
+          );
+        default:
+          return <Dashboard />;
+      }
+    };
+
+    return (
+      <div className={`${theme}`}>
+        <Navbar onToggleTheme={handleThemeChange} />
+
+        <div className="flex min-h-screen pt-14 bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+          <Sidebar
+            activeTab={activeTab}
+            onTabChange={handleTabChange}
+          />
+
+          <div className="ml-56 flex-grow transition-all duration-300">
+            {renderContent()}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Рендеринг приложения при загрузке DOM
+  // document.addEventListener('DOMContentLoaded', () => {
+  //   ReactDOM.render(<App />, document.getElementById('root'));
+  // });
+  // В конце app.jsx:
+  // Рендеринг приложения при загрузке DOM
+  document.addEventListener('DOMContentLoaded', () => {
+    try {
+      console.log("Пытаемся рендерить App");
+      const rootElement = document.getElementById('root');
+      console.log("Root element:", rootElement);
+
+      ReactDOM.render(
+        React.createElement(App),
+        rootElement
+      );
+      console.log("Рендеринг завершен");
+    } catch (error) {
+      console.error("Ошибка при рендеринге:", error);
+    }
+  });
+#+end_src

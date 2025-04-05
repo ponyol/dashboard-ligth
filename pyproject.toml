@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dashboard-light"
+version = "0.1.0"
+description = "Система мониторинга EKS Deployments & Pods"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    {name = "Олег", email = "oleg@example.com"},
+]
+dependencies = [
+    # Веб-сервер и маршрутизация
+    "fastapi>=0.92.0",
+    "uvicorn>=0.20.0",
+    "jinja2>=3.1.2",
+    "aiofiles>=23.1.0",
+
+    # Kubernetes клиент
+    "kubernetes>=28.1.0",
+
+    # Работа с конфигурацией
+    "pyyaml>=6.0.1",
+    "pydantic>=2.4.2",
+
+    # Аутентификация OAuth
+    "authlib>=1.2.1",
+    "itsdangerous>=2.1.2",
+    "python-jose>=3.3.0",
+
+    # HTTP клиент
+    "httpx>=0.24.1",
+
+    # Утилиты
+    "pydantic-settings>=2.0.3",
+    "toolz>=0.12.0",
+    "more-itertools>=10.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.3.1",
+    "black>=23.3.0",
+    "isort>=5.12.0",
+    "mypy>=1.3.0",
+    "ruff>=0.0.269",
+]
+
+[project.scripts]
+dashboard-light = "dashboard_light.core:main"
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+select = ["E", "F", "B", "I"]

@@ -1,0 +1,178 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-light
+  namespace: default # Измени на нужный namespace
+  labels:
+    app: dashboard-light
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard-light
+  template:
+    metadata:
+      labels:
+        app: dashboard-light
+    spec:
+      serviceAccountName: dashboard-light # Используем созданный ServiceAccount
+      containers:
+      - name: dashboard-light
+        image: python:3.13.2-alpine
+        # image: clojure:temurin-24-lein-noble
+        imagePullPolicy: Always
+        command:
+          - /usr/bin/tail
+        args:
+          - '-f'
+          - /dev/null
+        ports:
+        - containerPort: 3000
+          name: http
+        - name: repl
+          containerPort: 7888
+          protocol: TCP
+        env:
+        - name: LOG_LEVEL
+          value: "debug"
+        - name: PORT
+          value: "3000"
+        resources:
+          limits:
+            cpu: 200m
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+# ---
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: dashboard-light
+#   namespace: monitoring # Измени на нужный namespace
+#   labels:
+#     app: dashboard-light
+# spec:
+#   replicas: 1
+#   selector:
+#     matchLabels:
+#       app: dashboard-light
+#   template:
+#     metadata:
+#       labels:
+#         app: dashboard-light
+#     spec:
+#       serviceAccountName: dashboard-light # Используем созданный ServiceAccount
+#       containers:
+#       - name: dashboard-light
+#         image: your-registry/dashboard-light:latest # Замени на правильный путь к образу
+#         imagePullPolicy: Always
+#         ports:
+#         - containerPort: 3000
+#           name: http
+#         env:
+#         - name: LOG_LEVEL
+#           value: "info"
+#         - name: PORT
+#           value: "3000"
+#         - name: GITLAB_CLIENT_SECRET # Секрет для GitLab OAuth
+#           valueFrom:
+#             secretKeyRef:
+#               name: dashboard-light-secrets
+#               key: gitlab-client-secret
+#         volumeMounts:
+#         - name: config
+#           mountPath: /app/resources/config.yaml
+#           subPath: config.yaml
+#       volumes:
+#       - name: config
+#         configMap:
+#           name: dashboard-light-config
+---
+# Service для доступа к приложению
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: dashboard-light
+#   namespace: monitoring # Измени на нужный namespace
+# spec:
+#   selector:
+#     app: dashboard-light
+#   ports:
+#   - port: 80
+#     targetPort: 3000
+#     protocol: TCP
+#     name: http
+#   type: ClusterIP
+---
+# ConfigMap для конфигурации (пример)
+# apiVersion: v1
+# kind: ConfigMap
+# metadata:
+#   name: dashboard-light-config
+#   namespace: monitoring
+# data:
+#   config.yaml: |
+#     auth:
+#       provider: gitlab
+#       gitlab_url: "https://gitlab.example.com"
+#       client_id: "your-gitlab-client-id"
+#       client_secret_env: "GITLAB_CLIENT_SECRET"
+#       redirect_uri: "https://dashboard.example.com/auth/callback"
+
+#       # Роли и группы GitLab
+#       roles:
+#         viewer:
+#           gitlab_groups: ["developers", "qa"]
+#         admin:
+#           gitlab_groups: ["devops-team"]
+
+#       # Права по ролям
+#       permissions:
+#         viewer:
+#           menu_items: ["status"]
+#           allowed_namespace_patterns: ["^project-.*-staging$", "^common-.*"]
+#           allowed_clusters: ["staging-cluster"]
+#         admin:
+#           menu_items: ["status", "admin_settings"]
+#           allowed_namespace_patterns: [".*"]
+#           allowed_clusters: ["*"]
+
+#       # Настройки анонимного доступа
+#       allow_anonymous_access: false
+#       anonymous_role: "viewer"
+
+#     # Настройки UI
+#     ui:
+#       refresh_interval_seconds: 15
+#       status_colors:
+#         deployment:
+#           healthy: "#28a745"
+#           progressing: "#ffc107"
+#           scaled_zero: "#6c757d"
+#           error: "#dc3545"
+#         pod:
+#           running: "#28a745"
+#           succeeded: "#17a2b8"
+#           pending: "#ffc107"
+#           failed: "#dc3545"
+#           terminating: "#6c757d"
+
+#     # Настройки меню
+#     menu:
+#       - id: status
+#         title: "Status"
+#         icon: "icon-status"
+#         required_role: "viewer"
+---
+# Secret для хранения чувствительных данных
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: dashboard-light-secrets
+#   namespace: monitoring
+# type: Opaque
+# data:
+#   # echo -n "ваш-секрет" | base64
+#   gitlab-client-secret: eW91ci1naXRsYWItY2xpZW50LXNlY3JldA== # Замените на реальный секрет в base64

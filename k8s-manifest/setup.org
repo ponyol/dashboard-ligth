@@ -1,0 +1,413 @@
+* IAM
+** Policy dashboard-light-policy
+#+begin_src json :noweb yes :exports none :mkdirp yes :tangle dashboard-light-policy.json
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "eks:DescribeCluster",
+          "eks:ListClusters"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "eks:ListNodegroups",
+          "eks:DescribeNodegroup"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "cloudwatch:GetMetricData",
+          "cloudwatch:ListMetrics"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents"
+        ],
+        "Resource": "*"
+      }
+    ]
+  }
+#+end_src
+** Apply policy
+#+begin_src bash
+  # Создание IAM Policy
+  aws iam create-policy \
+    --policy-name DashboardLightPolicy \
+    --policy-document file://dashboard-light-policy.json
+
+  # Создание IAM роли и связь с ServiceAccount
+  eksctl create iamserviceaccount \
+    --name dashboard-light \
+    --namespace default \
+    --cluster wldev-develop \
+    --attach-policy-arn arn:aws:iam::813350481219:policy/DashboardLightPolicy \
+    --approve
+#+end_src
+* RBAC
+** RBAC manifest
+#+begin_src yaml :noweb yes :exports none :mkdirp yes :tangle rbac.yaml
+  ---
+  # ServiceAccount для Dashboard-Light
+  # apiVersion: v1
+  # kind: ServiceAccount
+  # metadata:
+  #   name: dashboard-light
+  #   namespace: default # Измени на нужный namespace
+  ---
+  # ClusterRole с необходимыми разрешениями
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: dashboard-light-reader
+  rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/status", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  # Основные ресурсы
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/status", "namespaces", "services", "endpoints", "events"]
+    verbs: ["get", "list", "watch"]
+  # Доступ к Metrics API
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+  # # Доступ к Deployments
+  # - apiGroups: ["apps"]
+  #   resources: ["deployments"]
+  #   verbs: ["get", "list", "watch"]
+  # - apiGroups: ["apps"]
+  #   resources: ["deployments/status"]
+  #   verbs: ["get"]
+  # # Доступ к Pods
+  # - apiGroups: [""]
+  #   resources: ["pods"]
+  #   verbs: ["get", "list", "watch"]
+  # # Доступ к Metrics Server API
+  # - apiGroups: ["metrics.k8s.io"]
+  #   resources: ["pods"]
+  #   verbs: ["get", "list"]
+  # Доступ к Namespaces для получения списка доступных NS
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+  ---
+  # ClusterRoleBinding для связывания ServiceAccount с ClusterRole
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: dashboard-light-reader-binding
+  subjects:
+  - kind: ServiceAccount
+    name: dashboard-light
+    namespace: default # Тот же namespace, что и в ServiceAccount
+  roleRef:
+    kind: ClusterRole
+    name: dashboard-light-reader
+    apiGroup: rbac.authorization.k8s.io
+
+#+end_src
+** Deployment
+#+begin_src yaml :noweb yes :exports none :mkdirp yes :tangle deployment.yaml
+  ---
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: dashboard-light
+    namespace: default # Измени на нужный namespace
+    labels:
+      app: dashboard-light
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: dashboard-light
+    template:
+      metadata:
+        labels:
+          app: dashboard-light
+      spec:
+        serviceAccountName: dashboard-light # Используем созданный ServiceAccount
+        containers:
+        - name: dashboard-light
+          image: python:3.13.2-alpine
+          # image: clojure:temurin-24-lein-noble
+          imagePullPolicy: Always
+          command:
+            - /usr/bin/tail
+          args:
+            - '-f'
+            - /dev/null
+          ports:
+          - containerPort: 3000
+            name: http
+          - name: repl
+            containerPort: 7888
+            protocol: TCP
+          env:
+          - name: LOG_LEVEL
+            value: "debug"
+          - name: PORT
+            value: "3000"
+          resources:
+            limits:
+              cpu: 200m
+              memory: 2Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+  # ---
+  # apiVersion: apps/v1
+  # kind: Deployment
+  # metadata:
+  #   name: dashboard-light
+  #   namespace: monitoring # Измени на нужный namespace
+  #   labels:
+  #     app: dashboard-light
+  # spec:
+  #   replicas: 1
+  #   selector:
+  #     matchLabels:
+  #       app: dashboard-light
+  #   template:
+  #     metadata:
+  #       labels:
+  #         app: dashboard-light
+  #     spec:
+  #       serviceAccountName: dashboard-light # Используем созданный ServiceAccount
+  #       containers:
+  #       - name: dashboard-light
+  #         image: your-registry/dashboard-light:latest # Замени на правильный путь к образу
+  #         imagePullPolicy: Always
+  #         ports:
+  #         - containerPort: 3000
+  #           name: http
+  #         env:
+  #         - name: LOG_LEVEL
+  #           value: "info"
+  #         - name: PORT
+  #           value: "3000"
+  #         - name: GITLAB_CLIENT_SECRET # Секрет для GitLab OAuth
+  #           valueFrom:
+  #             secretKeyRef:
+  #               name: dashboard-light-secrets
+  #               key: gitlab-client-secret
+  #         volumeMounts:
+  #         - name: config
+  #           mountPath: /app/resources/config.yaml
+  #           subPath: config.yaml
+  #       volumes:
+  #       - name: config
+  #         configMap:
+  #           name: dashboard-light-config
+  ---
+  # Service для доступа к приложению
+  # apiVersion: v1
+  # kind: Service
+  # metadata:
+  #   name: dashboard-light
+  #   namespace: monitoring # Измени на нужный namespace
+  # spec:
+  #   selector:
+  #     app: dashboard-light
+  #   ports:
+  #   - port: 80
+  #     targetPort: 3000
+  #     protocol: TCP
+  #     name: http
+  #   type: ClusterIP
+  ---
+  # ConfigMap для конфигурации (пример)
+  # apiVersion: v1
+  # kind: ConfigMap
+  # metadata:
+  #   name: dashboard-light-config
+  #   namespace: monitoring
+  # data:
+  #   config.yaml: |
+  #     auth:
+  #       provider: gitlab
+  #       gitlab_url: "https://gitlab.example.com"
+  #       client_id: "your-gitlab-client-id"
+  #       client_secret_env: "GITLAB_CLIENT_SECRET"
+  #       redirect_uri: "https://dashboard.example.com/auth/callback"
+
+  #       # Роли и группы GitLab
+  #       roles:
+  #         viewer:
+  #           gitlab_groups: ["developers", "qa"]
+  #         admin:
+  #           gitlab_groups: ["devops-team"]
+
+  #       # Права по ролям
+  #       permissions:
+  #         viewer:
+  #           menu_items: ["status"]
+  #           allowed_namespace_patterns: ["^project-.*-staging$", "^common-.*"]
+  #           allowed_clusters: ["staging-cluster"]
+  #         admin:
+  #           menu_items: ["status", "admin_settings"]
+  #           allowed_namespace_patterns: [".*"]
+  #           allowed_clusters: ["*"]
+
+  #       # Настройки анонимного доступа
+  #       allow_anonymous_access: false
+  #       anonymous_role: "viewer"
+
+  #     # Настройки UI
+  #     ui:
+  #       refresh_interval_seconds: 15
+  #       status_colors:
+  #         deployment:
+  #           healthy: "#28a745"
+  #           progressing: "#ffc107"
+  #           scaled_zero: "#6c757d"
+  #           error: "#dc3545"
+  #         pod:
+  #           running: "#28a745"
+  #           succeeded: "#17a2b8"
+  #           pending: "#ffc107"
+  #           failed: "#dc3545"
+  #           terminating: "#6c757d"
+
+  #     # Настройки меню
+  #     menu:
+  #       - id: status
+  #         title: "Status"
+  #         icon: "icon-status"
+  #         required_role: "viewer"
+  ---
+  # Secret для хранения чувствительных данных
+  # apiVersion: v1
+  # kind: Secret
+  # metadata:
+  #   name: dashboard-light-secrets
+  #   namespace: monitoring
+  # type: Opaque
+  # data:
+  #   # echo -n "ваш-секрет" | base64
+  #   gitlab-client-secret: eW91ci1naXRsYWItY2xpZW50LXNlY3JldA== # Замените на реальный секрет в base64
+#+end_src
+* COMMENT Test k8s api authorization
+** test
+#+begin_src bash
+  #!/bin/bash
+  # Этот скрипт тестирует доступ к API Kubernetes с использованием токена ServiceAccount
+
+  # Путь к токену ServiceAccount в Kubernetes 1.24+
+  TOKEN_PATH="/var/run/secrets/kubernetes.io/serviceaccount/token"
+  # Путь к CA сертификату для TLS
+  CA_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+  # Проверяем наличие файла токена
+  if [ ! -f "$TOKEN_PATH" ]; then
+    echo "Токен ServiceAccount не найден по пути $TOKEN_PATH"
+    echo "Проверка альтернативных путей..."
+
+    # Проверяем наличие в новом месте (в случае projected volumes)
+    if [ -f "/var/run/secrets/tokens/token" ]; then
+      TOKEN_PATH="/var/run/secrets/tokens/token"
+      echo "Найден токен по пути $TOKEN_PATH"
+    else
+      echo "Токен не найден!"
+      exit 1
+    fi
+  fi
+
+  # Получаем токен
+  TOKEN=$(cat $TOKEN_PATH)
+  echo "Токен получен"
+
+  # Получаем namespace из файла
+  NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+  echo "Namespace: $NAMESPACE"
+
+  # Тестируем запрос к API с токеном
+  echo "Тестирование доступа к Deployments API:"
+  curl -s --cacert $CA_PATH -H "Authorization: Bearer $TOKEN" https://kubernetes.default.svc/apis/apps/v1/namespaces/default/deployments | head -n 20
+
+  echo -e "\n\nТестирование доступа к Pods API:"
+  curl -s --cacert $CA_PATH -H "Authorization: Bearer $TOKEN" https://kubernetes.default.svc/api/v1/namespaces/default/pods | head -n 20
+
+  echo -e "\n\nТестирование доступа к Metrics API:"
+  curl -s --cacert $CA_PATH -H "Authorization: Bearer $TOKEN" https://kubernetes.default.svc/apis/metrics.k8s.io/v1beta1/namespaces/default/pods | head -n 20
+
+#+end_src
+** debug
+#+begin_src bash
+  #!/bin/bash
+  # Скрипт для диагностики проблем с аутентификацией в Kubernetes
+
+  # Проверка системных файлов ServiceAccount
+  echo "=== Проверка файлов ServiceAccount ==="
+  ls -la /var/run/secrets/kubernetes.io/serviceaccount/ 2>/dev/null || echo "Стандартный путь к секретам не найден"
+  ls -la /var/run/secrets/tokens/ 2>/dev/null || echo "Путь к токенам от Projected Volume не найден"
+
+  # Проверяем наличие переменных окружения Kubernetes
+  echo -e "\n=== Переменные окружения Kubernetes ==="
+  printenv | grep -E 'KUBERNETES|K8S' || echo "Переменные окружения Kubernetes не найдены"
+
+  # Проверка соединения с API Kubernetes
+  echo -e "\n=== Проверка соединения с API сервером ==="
+  curl -s -k https://kubernetes.default.svc/healthz || echo "Не удалось подключиться к API серверу"
+
+  # Проверка разрешений через kubectl (если установлен)
+  echo -e "\n=== Проверка авторизации через kubectl ==="
+  if command -v kubectl >/dev/null 2>&1; then
+      kubectl auth can-i list pods || echo "Нет прав на просмотр подов"
+      kubectl auth can-i list deployments --subresource=status || echo "Нет прав на просмотр статуса деплойментов"
+  else
+      echo "kubectl не установлен, пропускаем проверку авторизации"
+  fi
+
+  # Информация о Pod и ServiceAccount
+  echo -e "\n=== Информация о текущем Pod ==="
+  TOKEN=""
+  if [ -f "/var/run/secrets/kubernetes.io/serviceaccount/token" ]; then
+      TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+      echo "Токен найден в стандартном пути"
+  elif [ -f "/var/run/secrets/tokens/token" ]; then
+      TOKEN=$(cat /var/run/secrets/tokens/token)
+      echo "Токен найден в projected volume"
+  else
+      echo "Токен не найден"
+  fi
+
+  if [ -n "$TOKEN" ]; then
+      NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>/dev/null || echo "unknown")
+      echo "Namespace: $NAMESPACE"
+
+      # Проверяем соединение с кластером
+      echo -e "\n=== Тест API с токеном ==="
+      CA_PATH=""
+      if [ -f "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt" ]; then
+          CA_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+      fi
+
+      if [ -n "$CA_PATH" ]; then
+          echo "Использую CA сертификат для запроса"
+          curl -s --cacert $CA_PATH -H "Authorization: Bearer $TOKEN" https://kubernetes.default.svc/api/v1/namespaces | grep -o "kind" || echo "Запрос с CA сертификатом не удался"
+      else
+          echo "CA сертификат не найден, использую -k (insecure)"
+          curl -s -k -H "Authorization: Bearer $TOKEN" https://kubernetes.default.svc/api/v1/namespaces | grep -o "kind" || echo "Запрос без проверки сертификата не удался"
+      fi
+  fi
+
+  # Проверка DNS
+  echo -e "\n=== Проверка DNS ==="
+  nslookup kubernetes.default.svc 2>/dev/null || echo "Не удалось разрешить DNS имя kubernetes.default.svc"
+
+  echo -e "\n=== Завершено ==="
+#+end_src

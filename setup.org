@@ -1,0 +1,57 @@
+* Для установки зависимостей из pyproject.toml у тебя есть несколько вариантов
+
+** 1. Установка с помощью pip (самый простой способ)
+
+```bash
+# Создаем виртуальное окружение
+python -m venv venv
+source venv/bin/activate  # На Linux/Mac
+# или
+venv\Scripts\activate     # На Windows
+
+# Устанавливаем проект в режиме разработки (установит все зависимости)
+pip install -e .
+```
+
+** 2. Установка только зависимостей
+
+```bash
+# Если нужно установить только зависимости без самого проекта
+pip install -e '.[dev]'  # Устанавливает и основные, и dev-зависимости
+# или
+pip install -r <(pip-compile --generate-hashes pyproject.toml)  # Требует pip-tools
+```
+
+### 3. Использование специализированных инструментов
+
+```bash
+# С помощью Poetry
+poetry install
+
+# С помощью Hatch (мы его указали в качестве бэкенда в pyproject.toml)
+pip install hatch
+hatch env create
+```
+
+** Практический рабочий процесс
+
+Вот что я бы рекомендовал для быстрого старта:
+
+```bash
+# 1. Клонируем репозиторий
+git clone <repo-url> dashboard-light
+cd dashboard-light
+
+# 2. Создаем виртуальное окружение
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# или .venv\Scripts\activate для Windows
+
+# 3. Устанавливаем проект в режиме разработки
+pip install -e .
+
+# 4. Если нужны dev-зависимости (pytest, black и т.д.)
+pip install -e '.[dev]'
+```
+
+Этого будет достаточно для начала работы. Если захочешь использовать более продвинутое управление зависимостями, можно потом настроить poetry или другой инструмент.

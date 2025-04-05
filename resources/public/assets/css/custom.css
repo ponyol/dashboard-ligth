@@ -1,0 +1,58 @@
+/* Дополнительные стили, которые не покрываются Tailwind CSS */
+
+/* Анимация для индикатора загрузки */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Затемнение для неактивных карточек в режиме фокуса */
+.focus-mode-inactive {
+  opacity: 0.3;
+  filter: grayscale(70%);
+  transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.focus-mode-inactive:hover {
+  opacity: 0.7;
+  filter: grayscale(30%);
+}
+
+/* Стили для мини-графиков ресурсов */
+.resource-chart {
+  height: 30px;
+  width: 100%;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.resource-chart-bar {
+  height: 100%;
+  background-color: rgba(40, 167, 69, 0.5);
+  position: absolute;
+  top: 0;
+  left: 0;
+  transition: width 0.3s ease;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 768px) {
+  .sidebar-collapsed {
+    width: 60px;
+  }
+
+  .sidebar-collapsed .sidebar-text {
+    display: none;
+  }
+
+  .content-with-sidebar {
+    margin-left: 60px;
+  }
+}
