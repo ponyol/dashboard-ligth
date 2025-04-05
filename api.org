@@ -1,0 +1,1254 @@
+#+TITLE: Dashboard-Light API Implementation
+#+AUTHOR: Олег
+#+DATE: 2025-04-05
+#+PROPERTY: header-args:python :results output :session *dashboard-light*
+
+* API с использованием FastAPI
+
+** Базовая структура
+
+*** src/dashboard_light/web/__init__.py
+Инициализация модуля API:
+
+#+begin_src python :tangle src/dashboard_light/web/__init__.py :mkdirp yes
+"""Модуль для веб-интерфейса и API приложения."""
+#+end_src
+
+*** src/dashboard_light/web/core.py
+Основной модуль для инициализации FastAPI:
+
+#+begin_src python :tangle src/dashboard_light/web/core.py :mkdirp yes
+  """Основной модуль для настройки FastAPI и веб-сервера."""
+
+  import logging
+  import os
+  from typing import Any, Dict, Optional
+  from pathlib import Path
+
+  from starlette.middleware.sessions import SessionMiddleware
+  import secrets
+
+  import uvicorn
+  from fastapi import FastAPI
+  from fastapi.middleware.cors import CORSMiddleware
+  from fastapi.staticfiles import StaticFiles
+
+  from dashboard_light.web.middleware import add_middlewares
+  from dashboard_light.web.routes import create_router
+
+  logger = logging.getLogger(__name__)
+
+  def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAPI:
+      """Создание и настройка FastAPI приложения.
+
+      Args:
+          app_config: Конфигурация приложения
+          k8s_client: Словарь с Kubernetes клиентом и API
+
+      Returns:
+          FastAPI: Настроенное FastAPI приложение
+      """
+      # Создание FastAPI приложения
+      app = FastAPI(
+          title="Dashboard Light",
+          description="Система мониторинга EKS Deployments & Pods",
+          version="0.1.0",
+      )
+
+      # Настройка CORS
+      app.add_middleware(
+          CORSMiddleware,
+          allow_origins=["*"],  # В продакшене нужно ограничить
+          allow_credentials=True,
+          allow_methods=["*"],
+          allow_headers=["*"],
+      )
+
+      # Добавление middleware для сессий (отдельный вызов)
+      app.add_middleware(
+          SessionMiddleware,
+          secret_key=os.environ.get("SESSION_SECRET", secrets.token_hex(32))
+      )
+      # Добавление пользовательских middleware
+      add_middlewares(app)
+
+      # Создание и добавление роутеров
+      main_router = create_router(app_config, k8s_client)
+      app.include_router(main_router)
+
+      # Переработаем определение пути к статическим файлам
+      project_root = Path(__file__).parent.parent.parent.parent  # 4 уровня вверх от web/core.py
+      static_dir = project_root / "resources" / "public"
+      # Монтирование статических файлов
+      if static_dir.exists():
+          app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+          logger.info(f"Смонтированы статические файлы из {static_dir}")
+      else:
+          logger.warning(f"Директория статических файлов не найдена: {static_dir}")
+      # static_dir = os.path.join(os.path.dirname(__file__), "../../resources/public")
+      # if os.path.exists(static_dir):
+      #     app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+
+      # Добавление хука запуска для сохранения зависимостей в контексте приложения
+      @app.on_event("startup")
+      async def startup_event():
+          app.state.config = app_config
+          app.state.k8s_client = k8s_client
+          logger.info("FastAPI приложение запущено")
+
+      # Добавление хука остановки
+      @app.on_event("shutdown")
+      async def shutdown_event():
+          logger.info("FastAPI приложение остановлено")
+
+      return app
+
+
+  def start_server(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> Dict[str, Any]:
+      """Запуск веб-сервера с FastAPI приложением.
+
+      Args:
+          app_config: Конфигурация приложения
+          k8s_client: Словарь с Kubernetes клиентом и API
+
+      Returns:
+          Dict[str, Any]: Словарь с информацией о запущенном сервере
+      """
+      app = create_app(app_config, k8s_client)
+
+      # Определение параметров запуска сервера
+      host = os.getenv("HOST", "0.0.0.0")
+      port = int(os.getenv("PORT", "3000"))
+      reload = os.getenv("RELOAD", "false").lower() == "true"
+
+      # Запуск сервера в отдельном потоке
+      config = uvicorn.Config(
+          app=app,
+          host=host,
+          port=port,
+          reload=reload,
+          log_level="info",
+      )
+      server = uvicorn.Server(config)
+
+      # Запуск сервера в отдельном потоке
+      import threading
+      thread = threading.Thread(target=server.run, daemon=True)
+      thread.start()
+
+      logger.info(f"Веб-сервер запущен на http://{host}:{port}")
+
+      return {
+          "app": app,
+          "server": server,
+          "thread": thread,
+          "host": host,
+          "port": port,
+      }
+
+
+  def stop_server(server_info: Dict[str, Any]) -> None:
+      """Остановка веб-сервера.
+
+      Args:
+          server_info: Словарь с информацией о запущенном сервере
+      """
+      if server_info and "server" in server_info:
+          server = server_info["server"]
+          if hasattr(server, "should_exit"):
+              server.should_exit = True
+              logger.info("Отправлен сигнал остановки веб-сервера")
+#+end_src
+
+*** src/dashboard_light/web/middleware.py
+Промежуточное ПО (middleware) для обработки запросов:
+
+#+begin_src python :tangle src/dashboard_light/web/middleware.py :mkdirp yes
+"""Промежуточное ПО (middleware) для обработки HTTP запросов."""
+
+import logging
+import time
+from typing import Callable
+
+from fastapi import FastAPI, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+
+logger = logging.getLogger(__name__)
+
+
+class LoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware для логирования запросов и ответов."""
+
+    async def dispatch(self, request: Request, call_next: Callable):
+        """Обработка запроса с логированием.
+
+        Args:
+            request: HTTP запрос
+            call_next: Следующий обработчик в цепочке
+
+        Returns:
+            Ответ от следующего обработчика
+        """
+        start_time = time.time()
+
+        # Логирование запроса
+        logger.debug(f"Request: {request.method} {request.url.path}")
+
+        # Вызов следующего обработчика
+        try:
+            response = await call_next(request)
+            process_time = time.time() - start_time
+
+            # Логирование ответа
+            logger.debug(
+                f"Response: {request.method} {request.url.path} - Status: {response.status_code} "
+                f"- Time: {process_time:.3f}s"
+            )
+
+            # Добавление заголовка с временем обработки
+            response.headers["X-Process-Time"] = str(process_time)
+
+            return response
+        except Exception as e:
+            process_time = time.time() - start_time
+            logger.error(
+                f"Error processing request: {request.method} {request.url.path} - "
+                f"Error: {str(e)} - Time: {process_time:.3f}s"
+            )
+            raise
+
+
+class AuthenticationMiddleware(BaseHTTPMiddleware):
+    """Middleware для проверки аутентификации."""
+
+    async def dispatch(self, request: Request, call_next: Callable):
+        """Обработка запроса с проверкой аутентификации.
+
+        Args:
+            request: HTTP запрос
+            call_next: Следующий обработчик в цепочке
+
+        Returns:
+            Ответ от следующего обработчика
+        """
+        # Проверка, отключена ли аутентификация в режиме разработки
+        auth_disabled = request.app.state.config.get("auth", {}).get("disable_auth", False)
+
+        # Пути, которые не требуют аутентификации
+        public_paths = [
+            "/api/health",
+            "/api/auth/login",
+            "/api/auth/callback",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+        ]
+
+        # Проверка, нужна ли аутентификация для этого пути
+        is_public_path = any(
+            request.url.path.startswith(path) for path in public_paths
+        )
+
+        # Если аутентификация отключена или путь публичный, пропускаем проверку
+        if auth_disabled or is_public_path:
+            return await call_next(request)
+
+        # Проверка аутентификации пользователя
+        session = request.session
+        user = session.get("user")
+
+        if not user:
+            # Проверка анонимного доступа
+            allow_anonymous = request.app.state.config.get("auth", {}).get("allow_anonymous_access", False)
+
+            if not allow_anonymous:
+                # Если анонимный доступ отключен и пользователь не аутентифицирован,
+                # перенаправляем на страницу входа или возвращаем ошибку 401
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Not authenticated"}
+                )
+
+        # Если проверка пройдена, вызываем следующий обработчик
+        return await call_next(request)
+
+
+def add_middlewares(app: FastAPI) -> None:
+    """Добавление всех необходимых middleware к приложению.
+
+    Args:
+        app: FastAPI приложение
+    """
+    # Добавление middleware для логирования
+    app.add_middleware(LoggingMiddleware)
+
+    # Добавление middleware для аутентификации
+    # app.add_middleware(AuthenticationMiddleware)
+    # Пока отключим, т.к. нужно сначала реализовать сессии
+#+end_src
+
+*** src/dashboard_light/web/models.py
+Модели данных для API (с использованием Pydantic):
+
+#+begin_src python :tangle src/dashboard_light/web/models.py :mkdirp yes
+"""Модели данных для API."""
+
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
+
+from pydantic import BaseModel, Field
+
+
+class ErrorResponse(BaseModel):
+    """Модель для ответа с ошибкой."""
+
+    detail: str = Field(..., description="Подробное описание ошибки")
+    status_code: int = Field(400, description="HTTP код ошибки")
+
+
+class HealthResponse(BaseModel):
+    """Модель для ответа о состоянии здоровья приложения."""
+
+    status: str = Field(..., description="Статус приложения")
+    version: str = Field(..., description="Версия приложения")
+    kubernetes_connected: bool = Field(..., description="Подключение к Kubernetes API")
+
+
+class UserInfo(BaseModel):
+    """Модель для информации о пользователе."""
+
+    id: int = Field(..., description="Уникальный идентификатор пользователя")
+    username: str = Field(..., description="Имя пользователя")
+    name: Optional[str] = Field(None, description="Полное имя пользователя")
+    email: Optional[str] = Field(None, description="Email пользователя")
+    roles: List[str] = Field(default_factory=list, description="Роли пользователя")
+
+
+class ContainerInfo(BaseModel):
+    """Модель для информации о контейнере."""
+
+    name: str = Field(..., description="Имя контейнера")
+    image: str = Field(..., description="Образ контейнера")
+    image_tag: str = Field(..., description="Тег образа контейнера")
+
+
+class ReplicaInfo(BaseModel):
+    """Модель для информации о репликах Deployment."""
+
+    desired: int = Field(..., description="Желаемое количество реплик")
+    ready: int = Field(..., description="Готовое количество реплик")
+    available: int = Field(..., description="Доступное количество реплик")
+    updated: int = Field(..., description="Обновленное количество реплик")
+
+
+class DeploymentInfo(BaseModel):
+    """Модель для информации о Deployment."""
+
+    name: str = Field(..., description="Имя Deployment")
+    namespace: str = Field(..., description="Пространство имен")
+    replicas: ReplicaInfo = Field(..., description="Информация о репликах")
+    main_container: Optional[ContainerInfo] = Field(None, description="Информация о главном контейнере")
+    labels: Dict[str, str] = Field(default_factory=dict, description="Метки")
+    status: Optional[str] = Field(None, description="Статус Deployment")
+
+
+class ResourceUsage(BaseModel):
+    """Модель для информации об использовании ресурсов."""
+
+    cpu: Optional[str] = Field(None, description="Использование CPU")
+    memory: Optional[str] = Field(None, description="Использование памяти")
+    cpu_millicores: Optional[int] = Field(None, description="Использование CPU в миллиядрах")
+    memory_mb: Optional[float] = Field(None, description="Использование памяти в МБ")
+
+
+class ContainerMetrics(BaseModel):
+    """Модель для метрик контейнера."""
+
+    name: str = Field(..., description="Имя контейнера")
+    resource_usage: ResourceUsage = Field(..., description="Использование ресурсов")
+
+
+class PodMetrics(BaseModel):
+    """Модель для метрик Pod."""
+
+    name: str = Field(..., description="Имя Pod")
+    namespace: str = Field(..., description="Пространство имен")
+    containers: List[ContainerMetrics] = Field(..., description="Метрики контейнеров")
+    timestamp: Optional[str] = Field(None, description="Временная метка")
+    age_seconds: Optional[float] = Field(None, description="Возраст метрик в секундах")
+
+
+class PodInfo(BaseModel):
+    """Модель для информации о Pod."""
+
+    name: str = Field(..., description="Имя Pod")
+    namespace: str = Field(..., description="Пространство имен")
+    phase: str = Field(..., description="Фаза Pod")
+    containers: List[ContainerInfo] = Field(..., description="Информация о контейнерах")
+    pod_ip: Optional[str] = Field(None, description="IP Pod")
+    host_ip: Optional[str] = Field(None, description="IP хоста")
+    started_at: Optional[datetime] = Field(None, description="Время запуска")
+    labels: Dict[str, str] = Field(default_factory=dict, description="Метки")
+    metrics: Optional[PodMetrics] = Field(None, description="Метрики Pod")
+
+
+class NamespaceInfo(BaseModel):
+    """Модель для информации о Namespace."""
+
+    name: str = Field(..., description="Имя пространства имен")
+    phase: Optional[str] = Field(None, description="Фаза пространства имен")
+    created: Optional[str] = Field(None, description="Время создания")
+    labels: Dict[str, str] = Field(default_factory=dict, description="Метки")
+
+
+class DeploymentList(BaseModel):
+    """Модель для списка Deployments."""
+
+    items: List[DeploymentInfo] = Field(..., description="Список Deployments")
+
+
+class PodList(BaseModel):
+    """Модель для списка Pods."""
+
+    items: List[PodInfo] = Field(..., description="Список Pods")
+
+
+class NamespaceList(BaseModel):
+    """Модель для списка Namespaces."""
+
+    items: List[NamespaceInfo] = Field(..., description="Список Namespaces")
+#+end_src
+
+*** src/dashboard_light/web/routes/__init__.py
+Инициализация модуля роутов:
+
+#+begin_src python :tangle src/dashboard_light/web/routes/__init__.py :mkdirp yes
+"""Модуль с маршрутами API."""
+
+from typing import Any, Dict
+
+from fastapi import APIRouter
+
+from dashboard_light.web.routes.auth import create_auth_router
+from dashboard_light.web.routes.health import create_health_router
+from dashboard_light.web.routes.k8s import create_k8s_router
+
+
+def create_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> APIRouter:
+    """Создание основного роутера с подключением всех дочерних роутеров.
+
+    Args:
+        app_config: Конфигурация приложения
+        k8s_client: Словарь с Kubernetes клиентом и API
+
+    Returns:
+        APIRouter: Основной роутер с подключенными дочерними роутерами
+    """
+    main_router = APIRouter(prefix="/api")
+
+    # Добавление дочерних роутеров
+    main_router.include_router(create_health_router(app_config))
+    main_router.include_router(create_auth_router(app_config))
+    main_router.include_router(create_k8s_router(app_config, k8s_client))
+
+    return main_router
+#+end_src
+
+** Реализация основных роутов
+
+*** src/dashboard_light/web/routes/health.py
+Роут для проверки состояния здоровья приложения:
+
+#+begin_src python :tangle src/dashboard_light/web/routes/health.py :mkdirp yes
+"""Маршруты для проверки состояния здоровья приложения."""
+
+import logging
+from typing import Any, Dict
+
+from fastapi import APIRouter
+
+from dashboard_light import __version__
+from dashboard_light.web.models import HealthResponse
+
+logger = logging.getLogger(__name__)
+
+
+def create_health_router(app_config: Dict[str, Any]) -> APIRouter:
+    """Создание роутера для проверки состояния здоровья.
+
+    Args:
+        app_config: Конфигурация приложения
+
+    Returns:
+        APIRouter: Роутер с маршрутами для проверки состояния здоровья
+    """
+    router = APIRouter(tags=["Health"])
+
+    @router.get("/health", response_model=HealthResponse)
+    async def health_check():
+        """Проверка состояния здоровья приложения."""
+        return {
+            "status": "ok",
+            "version": __version__,
+            "kubernetes_connected": True,  # В реальном сценарии здесь будет проверка соединения
+        }
+
+    return router
+#+end_src
+
+*** src/dashboard_light/web/routes/auth.py
+Роуты для аутентификации:
+
+#+begin_src python :tangle src/dashboard_light/web/routes/auth.py :mkdirp yes
+"""Маршруты для аутентификации и авторизации."""
+
+import logging
+import os
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
+
+from dashboard_light.web.models import UserInfo
+
+logger = logging.getLogger(__name__)
+
+
+def create_auth_router(app_config: Dict[str, Any]) -> APIRouter:
+    """Создание роутера для аутентификации.
+
+    Args:
+        app_config: Конфигурация приложения
+
+    Returns:
+        APIRouter: Роутер с маршрутами для аутентификации
+    """
+    router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+    # Получение настроек аутентификации из конфигурации
+    auth_config = app_config.get("auth", {})
+
+    # Функция для проверки, отключена ли аутентификация
+    def is_auth_disabled() -> bool:
+        """Проверка, отключена ли аутентификация в режиме разработки."""
+        return os.environ.get("DISABLE_AUTH", "false").lower() == "true"
+
+    # Тестовый пользователь для режима разработки
+    DEV_USER = {
+        "id": 1,
+        "username": "dev-user",
+        "name": "Developer",
+        "email": "dev@example.com",
+        "roles": ["admin"]
+    }
+
+    @router.get("/login")
+    async def login(request: Request):
+        """Начало процесса аутентификации с перенаправлением на GitLab."""
+        # Проверка, отключена ли аутентификация
+        if is_auth_disabled():
+            # В режиме разработки сразу авторизуем как тестового пользователя
+            request.session["user"] = DEV_USER
+            return RedirectResponse(url="/")
+
+        # В противном случае перенаправляем на GitLab OAuth
+        # TODO: Реализовать перенаправление на GitLab OAuth
+        return {"message": "Redirect to GitLab OAuth - Not implemented yet"}
+
+    @router.get("/callback")
+    async def callback(request: Request, code: Optional[str] = None):
+        """Обработка callback от GitLab OAuth."""
+        # Проверка, отключена ли аутентификация
+        if is_auth_disabled():
+            request.session["user"] = DEV_USER
+            return RedirectResponse(url="/")
+
+        # Проверка наличия кода аутентификации
+        if not code:
+            raise HTTPException(status_code=400, detail="Invalid code")
+
+        # TODO: Реализовать обмен кода на токен и получение информации о пользователе
+        return {"message": "GitLab OAuth callback - Not implemented yet"}
+
+    @router.get("/logout")
+    async def logout(request: Request, response: Response):
+        """Выход из системы."""
+        # Очистка сессии
+        request.session.clear()
+        return RedirectResponse(url="/")
+
+    @router.get("/user", response_model=UserInfo)
+    async def current_user(request: Request):
+        """Получение информации о текущем пользователе."""
+        # Получение пользователя из сессии
+        user = request.session.get("user")
+
+        # Если пользователь не аутентифицирован
+        if not user:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+
+        return user
+
+    return router
+#+end_src
+
+*** src/dashboard_light/web/routes/k8s.py
+Роуты для работы с Kubernetes API:
+
+#+begin_src python :tangle src/dashboard_light/web/routes/k8s.py :mkdirp yes
+"""Маршруты для работы с Kubernetes API."""
+
+import logging
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+
+from dashboard_light.k8s import deployments, namespaces, pods, metrics
+from dashboard_light.k8s.cache import invalidate_all as invalidate_k8s_cache
+from dashboard_light.web.models import (
+    DeploymentInfo,
+    DeploymentList,
+    NamespaceInfo,
+    NamespaceList,
+    PodInfo,
+    PodList
+)
+
+logger = logging.getLogger(__name__)
+
+
+def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> APIRouter:
+    """Создание роутера для работы с Kubernetes API.
+
+    Args:
+        app_config: Конфигурация приложения
+        k8s_client: Словарь с Kubernetes клиентом и API
+
+    Returns:
+        APIRouter: Роутер с маршрутами для работы с Kubernetes API
+    """
+    router = APIRouter(prefix="/k8s", tags=["Kubernetes"])
+
+    # Функция для фильтрации неймспейсов по правам доступа пользователя
+    async def filter_namespaces_by_access(request: Request, namespaces_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Фильтрация неймспейсов по правам доступа пользователя.
+
+        Args:
+            request: HTTP запрос
+            namespaces_data: Список данных о неймспейсах
+
+        Returns:
+            List[Dict[str, Any]]: Отфильтрованный список данных о неймспейсах
+        """
+        # Получение пользователя из сессии
+        user = request.session.get("user")
+
+        # Если пользователь не аутентифицирован, предоставляем доступ только к неймспейсам для анонимных
+        if not user:
+            # Проверка настройки анонимного доступа
+            auth_config = app_config.get("auth", {})
+            allow_anonymous = auth_config.get("allow_anonymous_access", False)
+
+            if not allow_anonymous:
+                return []
+
+            # Использование роли по умолчанию для анонимных пользователей
+            anonymous_role = auth_config.get("anonymous_role")
+            if not anonymous_role:
+                return []
+
+            # Получение разрешенных неймспейсов для роли анонимного пользователя
+            permissions = auth_config.get("permissions", {}).get(anonymous_role, {})
+            allowed_patterns = permissions.get("allowed_namespace_patterns", [])
+
+            # Фильтрация неймспейсов по разрешенным шаблонам
+            return namespaces.filter_namespaces_by_pattern(namespaces_data, allowed_patterns)
+
+        # Для аутентифицированных пользователей фильтруем по их правам
+        # TODO: Реализовать RBAC для фильтрации неймспейсов
+
+        # Пока возвращаем все неймспейсы (для отладки)
+        return namespaces_data
+
+    @router.get("/namespaces", response_model=NamespaceList)
+    async def list_namespaces(request: Request):
+        """Получение списка доступных неймспейсов с учётом RBAC."""
+        try:
+            # Получение списка неймспейсов
+            all_namespaces = namespaces.list_namespaces(k8s_client)
+
+            # Фильтрация неймспейсов по правам доступа
+            allowed_namespaces = await filter_namespaces_by_access(request, all_namespaces)
+
+            return {"items": allowed_namespaces}
+        except Exception as e:
+            logger.error(f"Ошибка при получении списка неймспейсов: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка при получении списка неймспейсов: {str(e)}")
+
+    @router.get("/deployments", response_model=DeploymentList)
+    async def list_deployments(
+        request: Request,
+        namespace: Optional[str] = None,
+        cluster: Optional[str] = None
+    ):
+        """Получение списка Deployments с учетом фильтров."""
+        try:
+            if namespace:
+                # Если указан конкретный неймспейс
+                all_deployments = deployments.list_deployments_for_namespace(k8s_client, namespace)
+                # Добавляем статус каждому деплойменту
+                for deployment in all_deployments:
+                    deployment["status"] = deployments.get_deployment_status(deployment)
+
+                return {"items": all_deployments}
+            else:
+                # Если неймспейс не указан, получаем список всех неймспейсов
+                all_namespaces = namespaces.list_namespaces(k8s_client)
+
+                # Фильтрация неймспейсов по правам доступа
+                allowed_namespaces = await filter_namespaces_by_access(request, all_namespaces)
+
+                # Получение списка деплойментов для всех доступных неймспейсов
+                ns_names = [ns.get("name") for ns in allowed_namespaces]
+                all_deployments = deployments.list_deployments_multi_ns(k8s_client, ns_names)
+
+                # Добавляем статус каждому деплойменту
+                for deployment in all_deployments:
+                    deployment["status"] = deployments.get_deployment_status(deployment)
+
+                return {"items": all_deployments}
+        except Exception as e:
+            logger.error(f"Ошибка при получении списка деплойментов: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка при получении списка деплойментов: {str(e)}")
+
+    @router.get("/deployments/{namespace}/{name}", response_model=DeploymentInfo)
+    async def get_deployment(
+        request: Request,
+        namespace: str,
+        name: str
+    ):
+        """Получение детальной информации о конкретном Deployment."""
+        try:
+            # Получение списка деплойментов в указанном неймспейсе
+            all_deployments = deployments.list_deployments_for_namespace(k8s_client, namespace)
+
+            # Поиск нужного деплоймента
+            deployment = next((d for d in all_deployments if d.get("name") == name), None)
+
+            if not deployment:
+                raise HTTPException(status_code=404, detail=f"Deployment {name} не найден в неймспейсе {namespace}")
+
+            # Добавляем статус деплойменту
+            deployment["status"] = deployments.get_deployment_status(deployment)
+
+            # Получение подов, связанных с деплойментом
+            deployment_pods = pods.list_deployment_pods(k8s_client, namespace, name)
+
+            # Получение метрик для каждого пода
+            pod_metrics = []
+            for pod in deployment_pods:
+                pod_name = pod.get("name")
+                pod_metrics_data = metrics.get_pod_metrics_by_name(k8s_client, namespace, pod_name)
+                pod["metrics"] = pod_metrics_data
+                pod_metrics.append(pod)
+
+            # Добавляем поды к деплойменту
+            deployment["pods"] = pod_metrics
+
+            return deployment
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            logger.error(f"Ошибка при получении деплоймента: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка при получении деплоймента: {str(e)}")
+
+    @router.get("/pods", response_model=PodList)
+    async def list_pods(
+        request: Request,
+        namespace: Optional[str] = None,
+        label_selector: Optional[str] = None
+    ):
+        """Получение списка Pods с учетом фильтров."""
+        try:
+            if namespace:
+                # Если указан конкретный неймспейс
+                all_pods = pods.list_pods_for_namespace(k8s_client, namespace, label_selector)
+                return {"items": all_pods}
+            else:
+                # Если неймспейс не указан, получаем список всех неймспейсов
+                all_namespaces = namespaces.list_namespaces(k8s_client)
+
+                # Фильтрация неймспейсов по правам доступа
+                allowed_namespaces = await filter_namespaces_by_access(request, all_namespaces)
+
+                # Получение списка подов для всех доступных неймспейсов
+                ns_names = [ns.get("name") for ns in allowed_namespaces]
+                all_pods = []
+                for ns in ns_names:
+                    ns_pods = pods.list_pods_for_namespace(k8s_client, ns, label_selector)
+                    all_pods.extend(ns_pods)
+
+                return {"items": all_pods}
+        except Exception as e:
+            logger.error(f"Ошибка при получении списка подов: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка при получении списка подов: {str(e)}")
+
+    @router.get("/pods/{namespace}/{name}", response_model=PodInfo)
+    async def get_pod(
+        request: Request,
+        namespace: str,
+        name: str
+    ):
+        """Получение детальной информации о конкретном Pod."""
+        try:
+            # Получение списка подов в указанном неймспейсе
+            all_pods = pods.list_pods_for_namespace(k8s_client, namespace)
+
+            # Поиск нужного пода
+            pod = next((p for p in all_pods if p.get("name") == name), None)
+
+            if not pod:
+                raise HTTPException(status_code=404, detail=f"Pod {name} не найден в неймспейсе {namespace}")
+
+            # Получение метрик для пода
+            pod_metrics = metrics.get_pod_metrics_by_name(k8s_client, namespace, name)
+            pod["metrics"] = pod_metrics
+
+            return pod
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            logger.error(f"Ошибка при получении пода: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка при получении пода: {str(e)}")
+
+    @router.post("/cache/clear")
+    async def clear_cache():
+        """Очистка кэша Kubernetes API."""
+        try:
+            invalidate_k8s_cache()
+            return {"status": "ok", "message": "Кэш успешно очищен"}
+        except Exception as e:
+            logger.error(f"Ошибка при очистке кэша: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Ошибка при очистке кэша: {str(e)}")
+
+    return router
+#+end_src
+
+*** src/dashboard_light/k8s/pods.py
+Дополнения к модулю работы с подами:
+
+#+begin_src python :tangle src/dashboard_light/k8s/pods.py :mkdirp yes
+"""Модуль для работы с подами Kubernetes."""
+
+import logging
+import re
+from typing import Any, Dict, List, Optional
+
+from kubernetes.client.exceptions import ApiException
+
+from dashboard_light.k8s.cache import with_cache
+
+logger = logging.getLogger(__name__)
+
+
+@with_cache("pods")
+def list_pods_for_namespace(k8s_client: Dict[str, Any], namespace: str,
+                          label_selector: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Получение списка Pods в указанном пространстве имен.
+
+    Args:
+        k8s_client: Словарь с Kubernetes клиентом и API
+        namespace: Имя пространства имен
+        label_selector: Селектор лейблов для фильтрации
+
+    Returns:
+        List[Dict[str, Any]]: Список данных о Pods
+    """
+    try:
+        core_v1_api = k8s_client.get("core_v1_api")
+
+        if not core_v1_api:
+            logger.warning(f"K8S: API клиент для Core/v1 не инициализирован, "
+                          f"возвращаем пустой список для {namespace}")
+            return []
+
+        result = core_v1_api.list_namespaced_pod(
+            namespace=namespace,
+            label_selector=label_selector
+        )
+
+        if not result or not result.items:
+            logger.info(f"K8S: Нет Pods в неймспейсе {namespace}")
+            return []
+
+        # Преобразование в словари с нужными полями
+        pods_data = []
+        for item in result.items:
+            metadata = item.metadata
+            spec = item.spec
+            status = item.status
+
+            # Получение информации о контейнерах
+            container_specs = spec.containers if spec and spec.containers else []
+            containers = []
+
+            for container_spec in container_specs:
+                image = container_spec.image
+                image_tag = image.split(":")[-1] if ":" in image else "latest"
+
+                containers.append({
+                    "name": container_spec.name,
+                    "image": image,
+                    "image_tag": image_tag,
+                })
+
+            # Формирование данных о поде
+            pod_data = {
+                "name": metadata.name,
+                "namespace": metadata.namespace,
+                "phase": status.phase if status else "Unknown",
+                "containers": containers,
+                "pod_ip": status.pod_ip if status else None,
+                "host_ip": status.host_ip if status else None,
+                "started_at": status.start_time.isoformat() if status and status.start_time else None,
+            }
+
+            # Добавление лейблов
+            if metadata.labels:
+                pod_data["labels"] = metadata.labels
+
+            # Добавление информации о владельце (owner references)
+            if metadata.owner_references:
+                owner_refs = []
+                for ref in metadata.owner_references:
+                    owner_refs.append({
+                        "name": ref.name,
+                        "kind": ref.kind,
+                        "uid": ref.uid,
+                    })
+                pod_data["owner_references"] = owner_refs
+
+            pods_data.append(pod_data)
+
+        return pods_data
+    except ApiException as e:
+        logger.error(f"K8S: Ошибка API при получении Pods: {str(e)}")
+        return []
+    except Exception as e:
+        logger.error(f"K8S: Ошибка получения списка Pods: {str(e)}")
+        return []
+
+
+def list_deployment_pods(k8s_client: Dict[str, Any], namespace: str, deployment_name: str) -> List[Dict[str, Any]]:
+    """Получение списка Pods, принадлежащих указанному Deployment.
+
+    Args:
+        k8s_client: Словарь с Kubernetes клиентом и API
+        namespace: Имя пространства имен
+        deployment_name: Имя Deployment
+
+    Returns:
+        List[Dict[str, Any]]: Список данных о Pods
+    """
+    # Получение всех подов в неймспейсе
+    pods_data = list_pods_for_namespace(k8s_client, namespace)
+
+    # Фильтрация подов, принадлежащих деплойменту через ReplicaSet
+    deployment_pods = []
+    for pod in pods_data:
+        owner_references = pod.get("owner_references", [])
+
+        # Проверка, принадлежит ли под ReplicaSet'у этого деплоймента
+        for ref in owner_references:
+            if ref.get("kind") == "ReplicaSet" and ref.get("name", "").startswith(deployment_name + "-"):
+                deployment_pods.append(pod)
+                break
+
+    return deployment_pods
+
+
+def get_pod_status(pod: Dict[str, Any]) -> str:
+    """Получение статуса Pod.
+
+    Args:
+        pod: Данные о Pod
+
+    Returns:
+        str: Статус Pod (running, succeeded, pending, failed, terminating, error)
+    """
+    phase = pod.get("phase", "").lower()
+
+    if phase == "running":
+        return "running"
+    elif phase == "succeeded":
+        return "succeeded"
+    elif phase == "pending":
+        return "pending"
+    elif phase == "failed":
+        return "failed"
+    elif phase == "terminating" or "terminating" in phase:
+        return "terminating"
+    else:
+        return "error"
+#+end_src
+
+** Обновление модуля метрик
+
+*** src/dashboard_light/k8s/metrics.py
+Функции для работы с метриками:
+
+#+begin_src python :tangle src/dashboard_light/k8s/metrics.py :mkdirp yes
+"""Модуль для работы с метриками Kubernetes."""
+
+import logging
+import re
+import time
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
+
+from kubernetes.client.exceptions import ApiException
+
+from dashboard_light.k8s.cache import with_cache
+
+logger = logging.getLogger(__name__)
+
+
+def parse_cpu_value(cpu_str: Optional[str]) -> Optional[int]:
+    """Преобразование значения CPU из формата Kubernetes (n, m, k, M, G)
+    в миллиядра (millicores).
+
+    Args:
+        cpu_str: Строка со значением CPU
+
+    Returns:
+        Optional[int]: Значение CPU в миллиядрах или None при ошибке
+    """
+    if not cpu_str:
+        return None
+
+    try:
+        # Значение с суффиксом "m" (миллиядра)
+        if match := re.match(r"(\d+)m", cpu_str):
+            return int(match.group(1))
+
+        # Целочисленное значение без суффикса (ядра)
+        if match := re.match(r"(\d+)$", cpu_str):
+            return int(match.group(1)) * 1000
+
+        # Дробное значение без суффикса (ядра)
+        if match := re.match(r"(\d+\.\d+)$", cpu_str):
+            return int(float(match.group(1)) * 1000)
+
+        return None
+    except Exception as e:
+        logger.warning(f"Не удалось преобразовать значение CPU: {cpu_str}, ошибка: {str(e)}")
+        return None
+
+
+def parse_memory_value(mem_str: Optional[str]) -> Optional[float]:
+    """Преобразование значения памяти из формата Kubernetes (Ki, Mi, Gi)
+    в мегабайты (MB).
+
+    Args:
+        mem_str: Строка со значением памяти
+
+    Returns:
+        Optional[float]: Значение памяти в мегабайтах или None при ошибке
+    """
+    if not mem_str:
+        return None
+
+    try:
+        # Значение с суффиксом "Mi" (мебибайты)
+        if match := re.match(r"(\d+)Mi", mem_str):
+            return float(match.group(1))
+
+        # Значение с суффиксом "Gi" (гибибайты)
+        if match := re.match(r"(\d+)Gi", mem_str):
+            return float(match.group(1)) * 1024
+
+        # Значение с суффиксом "Ki" (кибибайты)
+        if match := re.match(r"(\d+)Ki", mem_str):
+            return float(match.group(1)) / 1024
+
+        # Значение с суффиксом "M" (мегабайты)
+        if match := re.match(r"(\d+)M", mem_str):
+            return float(match.group(1))
+
+        # Значение с суффиксом "G" (гигабайты)
+        if match := re.match(r"(\d+)G", mem_str):
+            return float(match.group(1)) * 1024
+
+        # Байты без суффикса
+        if match := re.match(r"(\d+)$", mem_str):
+            return float(match.group(1)) / (1024 * 1024)
+
+        return None
+    except Exception as e:
+        logger.warning(f"Не удалось преобразовать значение памяти: {mem_str}, ошибка: {str(e)}")
+        return None
+
+
+@with_cache("metrics")
+def list_pod_metrics_for_namespace(k8s_client: Dict[str, Any], namespace: str) -> List[Dict[str, Any]]:
+    """Получение метрик Pod из Metrics Server для указанного пространства имен.
+
+    Args:
+        k8s_client: Словарь с Kubernetes клиентом и API
+        namespace: Имя пространства имен
+
+    Returns:
+        List[Dict[str, Any]]: Список метрик для Pods
+    """
+    try:
+        logger.debug(f"Получение метрик для неймспейса {namespace}")
+        start_time = time.time()
+
+        custom_objects_api = k8s_client.get("custom_objects_api")
+
+        if not custom_objects_api:
+            logger.warning(f"K8S: API клиент для CustomObjects не инициализирован, "
+                          f"возвращаем пустой список для {namespace}")
+            return []
+
+        # Параметры для запроса метрик
+        metrics_group = "metrics.k8s.io"
+        metrics_version = "v1beta1"
+        metrics_plural = "pods"
+
+        # Выполнение запроса к Metrics Server
+        result = custom_objects_api.list_namespaced_custom_object(
+            group=metrics_group,
+            version=metrics_version,
+            namespace=namespace,
+            plural=metrics_plural
+        )
+
+        if not result or "items" not in result:
+            logger.info(f"K8S: Нет метрик для подов в неймспейсе {namespace}")
+            return []
+
+        items = result.get("items", [])
+
+        # Преобразование в словари с нужными полями
+        metrics_data = []
+        for item in items:
+            metadata = item.get("metadata", {})
+            containers = item.get("containers", [])
+
+            # Обработка метрик контейнеров
+            container_metrics = []
+            for container in containers:
+                name = container.get("name", "")
+                usage = container.get("usage", {})
+
+                # Преобразование значений CPU и памяти
+                cpu = usage.get("cpu")
+                memory = usage.get("memory")
+                cpu_millicores = parse_cpu_value(cpu)
+                memory_mb = parse_memory_value(memory)
+
+                container_metrics.append({
+                    "name": name,
+                    "resource_usage": {
+                        "cpu": cpu,
+                        "memory": memory,
+                        "cpu_millicores": cpu_millicores,
+                        "memory_mb": memory_mb,
+                    }
+                })
+
+            # Формирование данных о метриках пода
+            pod_metrics = {
+                "name": metadata.get("name"),
+                "namespace": metadata.get("namespace"),
+                "containers": container_metrics,
+                "timestamp": metadata.get("timestamp"),
+            }
+
+            metrics_data.append(pod_metrics)
+
+        duration = time.time() - start_time
+        logger.debug(f"Получение метрик для неймспейса {namespace} выполнено за {duration:.3f} сек")
+
+        return metrics_data
+    except ApiException as e:
+        logger.error(f"K8S: Ошибка API при получении метрик: {str(e)}")
+        return []
+    except Exception as e:
+        logger.error(f"K8S: Ошибка получения метрик Pod: {str(e)}")
+        return []
+
+
+def get_pod_metrics_by_name(k8s_client: Dict[str, Any], namespace: str, pod_name: str) -> Optional[Dict[str, Any]]:
+    """Получение метрик для конкретного Pod по имени.
+
+    Args:
+        k8s_client: Словарь с Kubernetes клиентом и API
+        namespace: Имя пространства имен
+        pod_name: Имя Pod
+
+    Returns:
+        Optional[Dict[str, Any]]: Метрики Pod или None, если метрики не найдены
+    """
+    try:
+        # Получение метрик для всех подов в неймспейсе
+        metrics_data = list_pod_metrics_for_namespace(k8s_client, namespace)
+
+        # Поиск метрик для указанного пода
+        pod_metrics = next((m for m in metrics_data if m.get("name") == pod_name), None)
+
+        if pod_metrics:
+            # Расчет возраста метрик
+            timestamp = pod_metrics.get("timestamp")
+            if timestamp:
+                try:
+                    # Преобразование строки timestamp в datetime
+                    if isinstance(timestamp, str):
+                        timestamp_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    else:
+                        timestamp_dt = timestamp
+
+                    # Расчет возраста в секундах
+                    now = datetime.now().astimezone()
+                    age_seconds = (now - timestamp_dt).total_seconds()
+
+                    # Добавление возраста к метрикам
+                    pod_metrics["age_seconds"] = age_seconds
+                except Exception as e:
+                    logger.warning(f"Ошибка при расчете возраста метрик: {str(e)}")
+
+        return pod_metrics
+    except Exception as e:
+        logger.error(f"Ошибка при получении метрик для пода {pod_name}: {str(e)}")
+        return None
+
+
+def get_total_pod_resource_usage(pod_metrics: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Получение суммарного использования ресурсов для пода.
+
+    Args:
+        pod_metrics: Метрики Pod
+
+    Returns:
+        Dict[str, Any]: Суммарное использование ресурсов
+    """
+    if not pod_metrics:
+        return {"cpu_millicores": 0, "memory_mb": 0}
+
+    containers = pod_metrics.get("containers", [])
+
+    # Суммирование метрик по всем контейнерам
+    cpu_total = sum(
+        container.get("resource_usage", {}).get("cpu_millicores", 0) or 0
+        for container in containers
+    )
+
+    memory_total = sum(
+        container.get("resource_usage", {}).get("memory_mb", 0) or 0
+        for container in containers
+    )
+
+    return {"cpu_millicores": cpu_total, "memory_mb": memory_total}
+#+end_src
