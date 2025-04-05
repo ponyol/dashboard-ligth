@@ -1,24 +1,24 @@
 /**
  * Компонент индикатора загрузки
  */
-export default function Loading({ text = "Loading..." }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-12">
-      <svg
-        className="w-10 h-10 text-blue-600 dark:text-blue-400 animate-spin"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="2"
-          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-        ></path>
-      </svg>
-      <p className="mt-3 text-gray-600 dark:text-gray-400">{text}</p>
+export default function Loading({ text = "Loading...", fullScreen = false }) {
+  const loadingContent = (
+    <div className="flex flex-col items-center justify-center p-8">
+      <div className="relative">
+        <div className="h-16 w-16 rounded-full border-4 border-gray-200 dark:border-gray-700"></div>
+        <div className="h-16 w-16 rounded-full border-4 border-blue-600 dark:border-blue-400 border-t-transparent animate-spin absolute top-0 left-0"></div>
+      </div>
+      <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">{text}</p>
     </div>
   );
+
+  if (fullScreen) {
+    return (
+      <div className="fixed inset-0 bg-white/80 dark:bg-gray-900/80 flex items-center justify-center z-50">
+        {loadingContent}
+      </div>
+    );
+  }
+
+  return loadingContent;
 }

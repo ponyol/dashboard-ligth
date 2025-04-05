@@ -14,71 +14,76 @@
   filter: grayscale(30%);
 }
 
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Стили для полосы прокрутки */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
 }
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+.dark ::-webkit-scrollbar-track {
+  background: #2d3748;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 4px;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+.dark ::-webkit-scrollbar-thumb {
+  background: #4a5568;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #718096;
+}
+
+/* Анимации */
+@keyframes pulse-shadow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
   }
-  a:hover {
-    color: #747bff;
+  70% {
+    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
   }
-  button {
-    background-color: #f9f9f9;
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+.pulse-shadow {
+  animation: pulse-shadow 2s infinite;
+}
+
+/* Переходы */
+.transition-all {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}
+
+/* Стили для компоновки карточек */
+@layer components {
+  .dashboard-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6;
+  }
+
+  .dashboard-card {
+    @apply rounded-lg overflow-hidden shadow-sm border transition-all duration-300 hover:shadow-md;
+  }
+
+  .dashboard-card-header {
+    @apply px-4 py-2 text-white flex justify-between items-center;
+  }
+
+  .dashboard-card-body {
+    @apply p-4 bg-white dark:bg-gray-800;
   }
 }
