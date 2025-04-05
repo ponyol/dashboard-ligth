@@ -44,6 +44,92 @@ src/dashboard_light/web/frontend/
       <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
 
       <!-- Babel для поддержки JSX (для разработки) -->
+      <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+      <!-- В head после загрузки Babel -->
+      <script>
+        // Настройка Babel для поддержки современных возможностей JS
+        Babel.registerPreset('react-modern', {
+          presets: [
+            [Babel.availablePresets['react']],
+            [Babel.availablePresets['env'], {
+              targets: {
+                browsers: ['last 2 versions', 'safari >= 7']
+              },
+              useBuiltIns: false
+            }]
+          ],
+          plugins: [
+            Babel.availablePlugins['proposal-optional-chaining'],
+            Babel.availablePlugins['proposal-nullish-coalescing-operator']
+          ]
+        });
+      </script>
+      <!-- Кастомные стили -->
+      <link rel="stylesheet" href="/assets/css/custom.css">
+      <script>
+          // Настройка Tailwind
+          tailwind.config = {
+              darkMode: 'class',
+              theme: {
+                  extend: {
+                      colors: {
+                          'healthy': '#28a745',
+                          'progressing': '#ffc107',
+                          'scaled-zero': '#6c757d',
+                          'error': '#dc3545',
+                          'pod-running': '#28a745',
+                          'pod-succeeded': '#17a2b8',
+                          'pod-pending': '#ffc107',
+                          'pod-failed': '#dc3545',
+                          'pod-terminating': '#6c757d',
+                      }
+                  }
+              }
+          }
+      </script>
+  </head>
+  <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
+      <div id="root"></div>
+
+      <!-- Отладочный скрипт -->
+      <script type="text/babel" data-presets="react-modern" src="/js/debug.jsx"></script>
+      <!-- Загрузка компонентов -->
+      <script type="text/babel" data-presets="react-modern" src="/js/utils/api.js"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/utils/theme.js"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/hooks/useK8sApi.js"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/hooks/useInterval.js"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/components/StatusBadge.jsx"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/components/Navbar.jsx"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/components/Sidebar.jsx"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/components/DeploymentCard.jsx"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/components/DeploymentGrid.jsx"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/components/Filters.jsx"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/components/Loading.jsx"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/components/Dashboard.jsx"></script>
+      <script type="text/babel" data-presets="react-modern" src="/js/app.jsx"></script>
+  </body>
+  </html>
+#+end_src
+
+*** COMMENT old resources/public/index.html
+Основной HTML-файл:
+
+#+begin_src html :tangle resources/public/index.html :mkdirp yes
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Dashboard Light - K8s Monitor</title>
+
+      <!-- Tailwind CSS через CDN (для разработки) -->
+      <script src="https://cdn.tailwindcss.com"></script>
+
+      <!-- React и React DOM через CDN (для разработки) -->
+      <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+      <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+
+      <!-- Babel для поддержки JSX (для разработки) -->
       <script src="https://unpkg.com/babel-standalone@6.26.0/babel.min.js"></script>
 
       <!-- Кастомные стили -->
@@ -124,7 +210,7 @@ src/dashboard_light/web/frontend/
   </html>
 #+end_src
 
-*** COMMENT resources/public/index.html
+*** COMMENT backup resources/public/index.html
 Основной HTML-файл:
 
 #+begin_src html :tangle resources/public/index.html :mkdirp yes
@@ -298,38 +384,72 @@ Test HTML-файл:
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Dashboard Light - React Test</title>
 
-      <!-- React и ReactDOM -->
-      <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-      <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+      <!-- Tailwind -->
+      <script src="https://cdn.tailwindcss.com"></script>
+
+      <!-- React и ReactDOM (без Babel) -->
+      <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+      <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
   </head>
-  <body>
+  <body class="bg-gray-100">
       <div id="root">Загрузка...</div>
 
       <script>
           console.log("Скрипт загружен");
 
-          // Создаем React-элемент без JSX
+          // Создаем React элементы напрямую без JSX
           function App() {
-              return React.createElement('div', {
-                  style: {
-                      padding: '20px',
-                      backgroundColor: 'blue',
-                      color: 'white'
-                  }
-              }, 'Это работает!');
+              // Имитация наших компонентов
+              function Navbar() {
+                  return React.createElement('div', {
+                      className: 'bg-blue-800 text-white p-4'
+                  }, 'Dashboard Light Navbar');
+              }
+
+              function MainContent() {
+                  return React.createElement('div', {
+                      className: 'p-6'
+                  }, [
+                      React.createElement('h1', {
+                          className: 'text-2xl font-bold mb-4',
+                          key: 'title'
+                      }, 'Dashboard Panel'),
+                      React.createElement('div', {
+                          className: 'grid grid-cols-2 gap-4',
+                          key: 'grid'
+                      }, [
+                          React.createElement('div', {
+                              className: 'bg-green-500 text-white p-4 rounded shadow',
+                              key: 'item1'
+                          }, 'Deployment 1: Healthy'),
+                          React.createElement('div', {
+                              className: 'bg-yellow-500 text-white p-4 rounded shadow',
+                              key: 'item2'
+                          }, 'Deployment 2: Progressing')
+                      ])
+                  ]);
+              }
+
+              // Общая структура приложения
+              return React.createElement('div', null, [
+                  React.createElement(Navbar, { key: 'navbar' }),
+                  React.createElement(MainContent, { key: 'content' })
+              ]);
           }
 
+          // Рендеринг приложения
           document.addEventListener('DOMContentLoaded', function() {
-              console.log("DOM загружен");
+              console.log("DOM загружен, начинаем рендеринг");
               try {
                   ReactDOM.render(
                       React.createElement(App),
                       document.getElementById('root')
                   );
-                  console.log("React рендеринг выполнен");
+                  console.log("Рендеринг успешно выполнен");
               } catch (error) {
-                  console.error("Ошибка React:", error);
-                  document.getElementById('root').innerHTML = "Ошибка: " + error.message;
+                  console.error("Ошибка при рендеринге:", error);
+                  document.getElementById('root').innerHTML =
+                      "<div style='color:red;padding:20px'>Ошибка: " + error.message + "</div>";
               }
           });
       </script>

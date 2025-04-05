@@ -1,13 +1,13 @@
 /**
  * Компонент фильтров для дашборда
- * @param {Object} props - Свойства компонента
- * @param {Array} props.namespaces - Список неймспейсов
- * @param {string} props.selectedNamespace - Выбранный неймспейс
- * @param {Function} props.onNamespaceChange - Обработчик смены неймспейса
- * @param {Function} props.onRefresh - Обработчик обновления данных
- * @param {boolean} props.isLoading - Флаг загрузки
  */
-function Filters({ namespaces, selectedNamespace, onNamespaceChange, onRefresh, isLoading }) {
+export default function Filters({
+  namespaces,
+  selectedNamespace,
+  onNamespaceChange,
+  onRefresh,
+  isLoading
+}) {
   // Обработчик изменения выбранного неймспейса
   const handleNamespaceChange = (e) => {
     onNamespaceChange(e.target.value);

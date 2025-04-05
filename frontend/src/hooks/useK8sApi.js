@@ -1,20 +1,20 @@
-/**
- * Хук для работы с Kubernetes API
- */
-function useK8sApi() {
-  const [namespaces, setNamespaces] = React.useState([]);
-  const [deployments, setDeployments] = React.useState([]);
-  const [selectedNamespace, setSelectedNamespace] = React.useState('');
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [error, setError] = React.useState(null);
+import { useState, useCallback, useEffect } from 'react';
+import { k8sApi } from '../api/api';
+
+export default function useK8sApi() {
+  const [namespaces, setNamespaces] = useState([]);
+  const [deployments, setDeployments] = useState([]);
+  const [selectedNamespace, setSelectedNamespace] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // Загрузка списка неймспейсов
-  const fetchNamespaces = React.useCallback(async () => {
+  const fetchNamespaces = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      const data = await window.api.k8s.getNamespaces();
+      const data = await k8sApi.getNamespaces();
       setNamespaces(data.items || []);
 
       // Если выбранного неймспейса нет в списке, сбрасываем его
@@ -30,12 +30,12 @@ function useK8sApi() {
   }, [selectedNamespace]);
 
   // Загрузка списка деплойментов
-  const fetchDeployments = React.useCallback(async () => {
+  const fetchDeployments = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      const data = await window.api.k8s.getDeployments(selectedNamespace || null);
+      const data = await k8sApi.getDeployments(selectedNamespace || null);
       setDeployments(data.items || []);
     } catch (err) {
       setError(err.message || 'Ошибка при загрузке деплойментов');
@@ -46,15 +46,15 @@ function useK8sApi() {
   }, [selectedNamespace]);
 
   // Обработчик изменения выбранного неймспейса
-  const handleNamespaceChange = React.useCallback((namespace) => {
+  const handleNamespaceChange = useCallback((namespace) => {
     setSelectedNamespace(namespace);
   }, []);
 
   // Обработчик очистки кэша
-  const handleClearCache = React.useCallback(async () => {
+  const handleClearCache = useCallback(async () => {
     try {
       setIsLoading(true);
-      await window.api.k8s.clearCache();
+      await k8sApi.clearCache();
       // После очистки кэша обновляем данные
       await fetchNamespaces();
       await fetchDeployments();

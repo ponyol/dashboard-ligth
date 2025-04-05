@@ -1,10 +1,7 @@
 /**
  * Компонент для отображения статуса
- * @param {Object} props - Свойства компонента
- * @param {string} props.status - Статус (healthy, progressing, scaled_zero, error, etc.)
- * @param {string} props.type - Тип (deployment, pod)
  */
-function StatusBadge({ status, type = 'deployment' }) {
+export default function StatusBadge({ status, type = 'deployment' }) {
   // Цвета и названия для разных статусов
   const statusConfig = {
     deployment: {
@@ -22,7 +19,7 @@ function StatusBadge({ status, type = 'deployment' }) {
     },
   };
 
-  // Получение конфигурации для статуса
+  // Теперь можно использовать современный синтаксис с ?. без проблем
   const config = statusConfig[type]?.[status] || {
     color: 'bg-gray-500 text-white',
     label: status || 'Unknown'

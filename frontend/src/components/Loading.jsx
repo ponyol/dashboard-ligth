@@ -1,9 +1,7 @@
 /**
  * Компонент индикатора загрузки
- * @param {Object} props - Свойства компонента
- * @param {string} props.text - Текст сообщения загрузки
  */
-function Loading({ text = "Loading..." }) {
+export default function Loading({ text = "Loading..." }) {
   return (
     <div className="flex flex-col items-center justify-center py-12">
       <svg
