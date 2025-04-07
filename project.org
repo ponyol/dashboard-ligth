@@ -110,7 +110,7 @@ __version__ = "0.1.0"
 
   # Настройка логирования
   logging.basicConfig(
-      level=logging.DEBUG,
+      level=logging.INFO,
       format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
   )
   logger = logging.getLogger(__name__)
@@ -387,7 +387,7 @@ class StatusColors(BaseModel):
     class DeploymentColors(BaseModel):
         """Цвета для статусов деплойментов."""
 
-        healthy: str = "#28a745"
+        healthy: str = "#04691b"
         progressing: str = "#ffc107"
         scaled_zero: str = "#6c757d"
         error: str = "#dc3545"
@@ -395,7 +395,7 @@ class StatusColors(BaseModel):
     class PodColors(BaseModel):
         """Цвета для статусов подов."""
 
-        running: str = "#28a745"
+        running: str = "#04691b"
         succeeded: str = "#17a2b8"
         pending: str = "#ffc107"
         failed: str = "#dc3545"
@@ -466,7 +466,7 @@ class AppConfig(BaseModel):
     ui: UIConfig = Field(default_factory=UIConfig)
     menu: List[MenuItem] = Field(default_factory=list)
     cache: CacheConfig = Field(default_factory=CacheConfig)
-    test: TestConfig = Field(default_factory=TestConfig)
+    default: TestConfig = Field(default_factory=TestConfig)
 
 
 def validate_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -1461,69 +1461,69 @@ def pipe(value: Any, *funcs: Callable) -> Any:
 Пример конфигурационного файла:
 
 #+begin_src yaml :tangle resources/config.yaml :mkdirp yes
-# Пример конфигурации dashboard-light
-auth:
-  provider: gitlab
-  gitlab_url: "https://gitlab.example.com"
-  client_id: "your-gitlab-client-id"
-  client_secret_env: "GITLAB_CLIENT_SECRET"
-  redirect_uri: "https://dashboard.example.com/auth/callback"
+  # Пример конфигурации dashboard-light
+  auth:
+    provider: gitlab
+    gitlab_url: "https://gitlab.example.com"
+    client_id: "your-gitlab-client-id"
+    client_secret_env: "GITLAB_CLIENT_SECRET"
+    redirect_uri: "https://dashboard.example.com/auth/callback"
 
-  # Роли и группы GitLab
-  roles:
-    viewer:
-      gitlab_groups: ["developers", "qa"]
-    admin:
-      gitlab_groups: ["devops-team"]
+    # Роли и группы GitLab
+    roles:
+      viewer:
+        gitlab_groups: ["developers", "qa"]
+      admin:
+        gitlab_groups: ["devops-team"]
 
-  # Права по ролям
-  permissions:
-    viewer:
-      menu_items: ["status"]
-      allowed_namespace_patterns: ["^project-.*-staging$", "^common-.*"]
-      allowed_clusters: ["staging-cluster"]
-    admin:
-      menu_items: ["status", "admin_settings"]
-      allowed_namespace_patterns: [".*"]
-      allowed_clusters: ["*"]
+    # Права по ролям
+    permissions:
+      viewer:
+        menu_items: ["status"]
+        allowed_namespace_patterns: ["^project-.*-staging$", "^common-.*"]
+        allowed_clusters: ["staging-cluster"]
+      admin:
+        menu_items: ["status", "admin_settings"]
+        allowed_namespace_patterns: [".*"]
+        allowed_clusters: ["*"]
 
-  # Настройки анонимного доступа
-  allow_anonymous_access: false
-  anonymous_role: "viewer"
+    # Настройки анонимного доступа
+    allow_anonymous_access: false
+    anonymous_role: "viewer"
 
-# Настройки UI
-ui:
-  refresh_interval_seconds: 15
-  status_colors:
-    deployment:
-      healthy: "#28a745"
-      progressing: "#ffc107"
-      scaled_zero: "#6c757d"
-      error: "#dc3545"
-    pod:
-      running: "#28a745"
-      succeeded: "#17a2b8"
-      pending: "#ffc107"
-      failed: "#dc3545"
-      terminating: "#6c757d"
+  # Настройки UI
+  ui:
+    refresh_interval_seconds: 15
+    status_colors:
+      deployment:
+        healthy: "#04691b"
+        progressing: "#ffc107"
+        scaled_zero: "#6c757d"
+        error: "#dc3545"
+      pod:
+        running: "#04691b"
+        succeeded: "#17a2b8"
+        pending: "#ffc107"
+        failed: "#dc3545"
+        terminating: "#6c757d"
 
-# Настройки меню
-menu:
-  - id: status
-    title: "Status"
-    icon: "icon-status"
-    required_role: "viewer"
+  # Настройки меню
+  menu:
+    - id: status
+      title: "Status"
+      icon: "icon-status"
+      required_role: "viewer"
 
-# Настройки кэширования
-cache:
-  default_ttl: 30  # По умолчанию 30 секунд
-  ttl:
-    namespaces: 60             # Список неймспейсов кэшируется на 60 секунд
-    pods: 15                   # Поды кэшируются на 15 секунд
-    deployments: 20            # Деплойменты кэшируются на 20 секунд
-    metrics: 10                # Метрики кэшируются всего на 10 секунд
+  # Настройки кэширования
+  cache:
+    default_ttl: 30  # По умолчанию 30 секунд
+    ttl:
+      namespaces: 180             # Список неймспейсов кэшируется на 60 секунд
+      pods: 15                   # Поды кэшируются на 15 секунд
+      deployments: 20            # Деплойменты кэшируются на 20 секунд
+      metrics: 10                # Метрики кэшируются всего на 10 секунд
 
-# Настройки для тестирования
-test:
-  namespace_patterns: ["default", "kube-system"]  # Паттерны неймспейсов для тестирования
+  # Настройки для тестирования
+  default:
+    namespace_patterns: ["^.*-staging$", "^.*-pre-production$"]  # Паттерны неймспейсов для тестирования
 #+end_src

@@ -29,7 +29,7 @@ class StatusColors(BaseModel):
     class DeploymentColors(BaseModel):
         """Цвета для статусов деплойментов."""
 
-        healthy: str = "#28a745"
+        healthy: str = "#04691b"
         progressing: str = "#ffc107"
         scaled_zero: str = "#6c757d"
         error: str = "#dc3545"
@@ -37,7 +37,7 @@ class StatusColors(BaseModel):
     class PodColors(BaseModel):
         """Цвета для статусов подов."""
 
-        running: str = "#28a745"
+        running: str = "#04691b"
         succeeded: str = "#17a2b8"
         pending: str = "#ffc107"
         failed: str = "#dc3545"
@@ -108,7 +108,7 @@ class AppConfig(BaseModel):
     ui: UIConfig = Field(default_factory=UIConfig)
     menu: List[MenuItem] = Field(default_factory=list)
     cache: CacheConfig = Field(default_factory=CacheConfig)
-    test: TestConfig = Field(default_factory=TestConfig)
+    default: TestConfig = Field(default_factory=TestConfig)
 
 
 def validate_config(config_data: Dict[str, Any]) -> Dict[str, Any]:

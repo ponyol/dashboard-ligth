@@ -38,6 +38,14 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
         # Проверяем, отключена ли аутентификация в режиме разработки
         auth_disabled = os.environ.get("DISABLE_AUTH", "false").lower() in ["true", "1", "yes", "y"]
 
+        # Получаем паттерны фильтрации из конфигурации
+        namespace_patterns = app_config.get("default", {}).get("namespace_patterns", [])
+
+        # Если есть паттерны фильтрации в конфиге, применяем их независимо от статуса аутентификации
+        if namespace_patterns:
+            logger.debug(f"Применяем фильтрацию по паттернам из конфига: {namespace_patterns}")
+            return namespaces.filter_namespaces_by_pattern(namespaces_data, namespace_patterns)
+
         # Если аутентификация отключена, возвращаем все неймспейсы
         if auth_disabled:
             logger.debug("Аутентификация отключена, возвращаем все неймспейсы")
