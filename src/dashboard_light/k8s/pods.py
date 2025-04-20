@@ -25,6 +25,9 @@ def list_pods_for_namespace(k8s_client: Dict[str, Any], namespace: str,
         List[Dict[str, Any]]: Список данных о Pods
     """
     try:
+        # Добавляем диагностический вывод
+        logger.info(f"Запрос подов для namespace {namespace}, k8s_client содержит ключи: {list(k8s_client.keys())}")
+
         core_v1_api = k8s_client.get("core_v1_api")
 
         if not core_v1_api:

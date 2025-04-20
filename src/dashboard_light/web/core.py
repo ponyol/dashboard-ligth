@@ -16,6 +16,9 @@ from fastapi.staticfiles import StaticFiles
 from dashboard_light.web.middleware import add_middlewares
 from dashboard_light.web.routes import create_router
 
+import asyncio
+from dashboard_light.state_manager import startup_state_manager, initialize_state_from_api
+
 logger = logging.getLogger(__name__)
 
 def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAPI:
@@ -75,12 +78,43 @@ def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAP
     # if os.path.exists(static_dir):
     #     app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
-    # Добавление хука запуска для сохранения зависимостей в контексте приложения
     @app.on_event("startup")
     async def startup_event():
         app.state.config = app_config
         app.state.k8s_client = k8s_client
         logger.info("FastAPI приложение запущено")
+
+        # Инициализация менеджера состояния
+        try:
+            # Проверяем, правильно ли инициализирован k8s_client перед запуском
+            if k8s_client and k8s_client.get("core_v1_api") and k8s_client.get("apps_v1_api"):
+                logger.info("K8S клиенты успешно инициализированы, запускаем менеджер состояния")
+                # Сначала инициализируем состояние из API для быстрого старта
+                await asyncio.sleep(2)  # Даем небольшую задержку для полной инициализации
+                await initialize_state_from_api(k8s_client)
+                # Затем запускаем наблюдателей для работы в реальном времени
+                await startup_state_manager(k8s_client)
+            else:
+                logger.error("K8S клиенты не инициализированы, нельзя запустить менеджер состояния!")
+                # Попытка реинициализировать клиент
+                from dashboard_light.k8s.core import create_k8s_client
+                new_k8s_client = create_k8s_client(app_config)
+                if new_k8s_client and new_k8s_client.get("core_v1_api"):
+                    logger.info("K8S клиенты успешно переинициализированы")
+                    app.state.k8s_client = new_k8s_client
+                    await initialize_state_from_api(new_k8s_client)
+                    await startup_state_manager(new_k8s_client)
+                else:
+                    logger.error("Не удалось инициализировать K8S клиенты даже после повторной попытки!")
+        except Exception as e:
+            logger.error(f"Ошибка при инициализации менеджера состояния: {str(e)}")
+
+    # Добавление хука запуска для сохранения зависимостей в контексте приложения
+    # @app.on_event("startup")
+    # async def startup_event():
+    #     app.state.config = app_config
+    #     app.state.k8s_client = k8s_client
+    #     logger.info("FastAPI приложение запущено")
 
     # Добавление хука остановки
     @app.on_event("shutdown")
