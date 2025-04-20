@@ -25,7 +25,7 @@ auth:
       allowed_clusters: ["*"]
 
   # Настройки анонимного доступа
-  allow_anonymous_access: false
+  allow_anonymous_access: true
   anonymous_role: "viewer"
 
 # Настройки UI
