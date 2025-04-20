@@ -177,74 +177,159 @@ def update_resource_store(resource_type: str, resources: List[Dict[str, Any]]):
     except Exception as e:
         logger.error(f"Ошибка обновления хранилища {resource_type}: {str(e)}")
 
-
 async def start_watchers(k8s_client: Dict[str, Any], resources_to_watch: List[str] = None):
-    """Запуск наблюдателей для всех типов ресурсов.
-
-    Args:
-        k8s_client: Клиент Kubernetes
-        resources_to_watch: Список типов ресурсов для наблюдения (по умолчанию все)
-    """
+    """Запуск наблюдателей для всех типов ресурсов."""
     if not resources_to_watch:
         resources_to_watch = list(resource_store.keys())
 
     logger.info(f"Запуск наблюдателей для ресурсов: {resources_to_watch}")
 
-    # Создаем асинхронные задачи для каждого типа ресурса
-    tasks = []
-
-    for resource_type in resources_to_watch:
-        # Создаем обработчик событий для конкретного типа ресурса
-        handler = lambda event_type, resource, rt=resource_type: handle_resource_event(event_type, resource, rt)
-
-        # Запускаем наблюдателя
-        if resource_type == "namespaces":
-            # Для namespace не нужно указывать namespace
-            task = asyncio.create_task(
-                watch.watch_resources(
-                    k8s_client=k8s_client,
-                    resource_type=resource_type,
-                    callback=handler
-                )
-            )
-        else:
-            # Для остальных ресурсов наблюдаем за всеми namespace
-            task = asyncio.create_task(
-                watch.watch_resources(
-                    k8s_client=k8s_client,
-                    resource_type=resource_type,
-                    callback=handler
-                )
-            )
-
-        tasks.append(task)
-
-    # Ждем выполнения всех задач (они бесконечные, поэтому это блокирующий вызов)
     try:
-        await asyncio.gather(*tasks)
-    except Exception as e:
-        logger.error(f"Ошибка в наблюдателях: {str(e)}")
-        # Перезапуск наблюдателей при ошибке
-        await asyncio.sleep(5)
-        asyncio.create_task(start_watchers(k8s_client, resources_to_watch))
+        # Создаем асинхронные задачи для каждого типа ресурса
+        for resource_type in resources_to_watch:
+            # Создаем обработчик событий для конкретного типа ресурса
+            handler = lambda event_type, resource, rt=resource_type: handle_resource_event(event_type, resource, rt)
 
+            # Запускаем наблюдателя в ФОНОВОЙ задаче
+            if resource_type == "namespaces":
+                # Для namespace не нужно указывать namespace
+                asyncio.create_task(
+                    watch.watch_resources(
+                        k8s_client=k8s_client,
+                        resource_type=resource_type,
+                        callback=handler
+                    )
+                )
+            else:
+                # Для остальных ресурсов наблюдаем за всеми namespace
+                asyncio.create_task(
+                    watch.watch_resources(
+                        k8s_client=k8s_client,
+                        resource_type=resource_type,
+                        callback=handler
+                    )
+                )
+
+        logger.info("Все наблюдатели запущены")
+    except Exception as e:
+        logger.error(f"Ошибка при запуске наблюдателей: {str(e)}")
+
+# async def start_watchers(k8s_client: Dict[str, Any], resources_to_watch: List[str] = None):
+#     """Запуск наблюдателей для всех типов ресурсов."""
+#     if not resources_to_watch:
+#         resources_to_watch = list(resource_store.keys())
+
+#     logger.info(f"Запуск наблюдателей для ресурсов: {resources_to_watch}")
+
+#     # Создаем асинхронные задачи для каждого типа ресурса
+#     for resource_type in resources_to_watch:
+#         # Создаем обработчик событий для конкретного типа ресурса
+#         handler = lambda event_type, resource, rt=resource_type: handle_resource_event(event_type, resource, rt)
+
+#         # Запускаем наблюдателя в отдельной задаче и НЕ ЖДЕМ ее завершения
+#         if resource_type == "namespaces":
+#             # Для namespace не нужно указывать namespace
+#             asyncio.create_task(
+#                 watch.watch_resources(
+#                     k8s_client=k8s_client,
+#                     resource_type=resource_type,
+#                     callback=handler
+#                 )
+#             )
+#         else:
+#             # Для остальных ресурсов наблюдаем за всеми namespace
+#             asyncio.create_task(
+#                 watch.watch_resources(
+#                     k8s_client=k8s_client,
+#                     resource_type=resource_type,
+#                     callback=handler
+#                 )
+#             )
+
+#     # НЕ используем await asyncio.gather() здесь, т.к. это блокирует поток событий
+#     logger.info("Все наблюдатели запущены")
+
+# async def start_watchers(k8s_client: Dict[str, Any], resources_to_watch: List[str] = None):
+#     """Запуск наблюдателей для всех типов ресурсов.
+
+#     Args:
+#         k8s_client: Клиент Kubernetes
+#         resources_to_watch: Список типов ресурсов для наблюдения (по умолчанию все)
+#     """
+#     if not resources_to_watch:
+#         resources_to_watch = list(resource_store.keys())
+
+#     logger.info(f"Запуск наблюдателей для ресурсов: {resources_to_watch}")
+
+#     # Создаем асинхронные задачи для каждого типа ресурса
+#     tasks = []
+
+#     for resource_type in resources_to_watch:
+#         # Создаем обработчик событий для конкретного типа ресурса
+#         handler = lambda event_type, resource, rt=resource_type: handle_resource_event(event_type, resource, rt)
+
+#         # Запускаем наблюдателя
+#         if resource_type == "namespaces":
+#             # Для namespace не нужно указывать namespace
+#             task = asyncio.create_task(
+#                 watch.watch_resources(
+#                     k8s_client=k8s_client,
+#                     resource_type=resource_type,
+#                     callback=handler
+#                 )
+#             )
+#         else:
+#             # Для остальных ресурсов наблюдаем за всеми namespace
+#             task = asyncio.create_task(
+#                 watch.watch_resources(
+#                     k8s_client=k8s_client,
+#                     resource_type=resource_type,
+#                     callback=handler
+#                 )
+#             )
+
+#         tasks.append(task)
+
+#     # Ждем выполнения всех задач (они бесконечные, поэтому это блокирующий вызов)
+#     try:
+#         await asyncio.gather(*tasks)
+#     except Exception as e:
+#         logger.error(f"Ошибка в наблюдателях: {str(e)}")
+#         # Перезапуск наблюдателей при ошибке
+#         await asyncio.sleep(5)
+#         asyncio.create_task(start_watchers(k8s_client, resources_to_watch))
 
 async def startup_state_manager(k8s_client: Dict[str, Any]):
-    """Инициализация и запуск менеджера состояния при старте приложения.
-
-    Args:
-        k8s_client: Клиент Kubernetes
-    """
+    """Инициализация и запуск менеджера состояния при старте приложения."""
     logger.info("Инициализация менеджера состояния")
 
     # Инициализация хранилища ресурсов
     for resource_type in resource_store:
         resource_store[resource_type] = {}
 
-    # Запуск наблюдателей
-    asyncio.create_task(start_watchers(k8s_client))
+    # Запуск наблюдателей - не блокирует выполнение
+    await start_watchers(k8s_client)
 
     logger.info("Менеджер состояния запущен")
+
+# async def startup_state_manager(k8s_client: Dict[str, Any]):
+#     """Инициализация и запуск менеджера состояния при старте приложения.
+
+#     Args:
+#         k8s_client: Клиент Kubernetes
+#     """
+#     logger.info("Инициализация менеджера состояния")
+
+#     # Инициализация хранилища ресурсов
+#     for resource_type in resource_store:
+#         resource_store[resource_type] = {}
+
+#     # Запуск наблюдателей - запуск и возврат без ожидания
+#     await start_watchers(k8s_client)
+#     # # Запуск наблюдателей
+#     # asyncio.create_task(start_watchers(k8s_client))
+
+#     logger.info("Менеджер состояния запущен")
 
 
 # Функция для инициализации начального состояния из существующих данных

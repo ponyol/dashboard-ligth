@@ -35,7 +35,7 @@ class ConnectionManager:
             user_id: Идентификатор пользователя
         """
         try:
-            await websocket.accept()
+            # Предполагаем, что соединение уже принято
             # Сохранение информации о пользователе и времени подключения
             websocket.state.user_id = user_id
             websocket.state.connected_at = datetime.now()
@@ -52,15 +52,18 @@ class ConnectionManager:
             logger.info(f"WebSocket: Пользователь {user_id} подключился")
 
             # Отправка сообщения о успешном подключении
-            await websocket.send_json({
-                "type": "connection",
-                "status": "connected",
-                "timestamp": datetime.now().isoformat()
-            })
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_json({
+                    "type": "connection",
+                    "status": "connected",
+                    "timestamp": datetime.now().isoformat()
+                })
+                return True
+            return False
 
         except Exception as e:
             logger.error(f"WebSocket: Ошибка при подключении пользователя {user_id}: {str(e)}")
-            # Если соединение уже было принято, отправляем сообщение об ошибке
+            # Если соединение активно, отправляем сообщение об ошибке
             if websocket.client_state == WebSocketState.CONNECTED:
                 try:
                     await websocket.send_json({
@@ -68,9 +71,9 @@ class ConnectionManager:
                         "message": f"Ошибка при настройке соединения: {str(e)}",
                         "timestamp": datetime.now().isoformat()
                     })
-                    await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
-                except:
-                    pass
+                except Exception as send_error:
+                    logger.error(f"WebSocket: Ошибка при отправке сообщения об ошибке: {str(send_error)}")
+            return False
 
     def disconnect(self, websocket: WebSocket):
         """Отключение клиента.
@@ -426,16 +429,31 @@ async def process_websocket_message(
         data: Данные сообщения
         app_config: Конфигурация приложения
     """
+    # Проверка состояния соединения перед обработкой
+    if websocket.client_state != WebSocketState.CONNECTED:
+        logger.warning(f"WebSocket не в состоянии CONNECTED (текущее состояние: {websocket.client_state}), пропуск обработки")
+        return
+        
     try:
         # Проверка типа сообщения
-        message_type = data.get("type")
+        message_type = data.get("type", "")
+        logger.debug(f"WebSocket: Получено сообщение типа '{message_type}'")
 
         if not message_type:
             await connection_manager.send_error(websocket, "Не указан тип сообщения")
             return
 
         # Получение идентификатора пользователя
-        user_id = getattr(websocket.state, "user_id", "unknown")
+        user_id = getattr(websocket.state, "user_id", "anonymous")
+
+        # Обработка пинга (самое простое сообщение, обрабатываем первым)
+        if message_type == "ping":
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_json({
+                    "type": "pong",
+                    "timestamp": datetime.now().isoformat()
+                })
+            return
 
         # Обработка подписки на ресурсы
         if message_type == "subscribe":
@@ -463,8 +481,11 @@ async def process_websocket_message(
                     )
                     return
 
-            # Подписка на ресурс
-            await connection_manager.subscribe(websocket, resource_type, namespace)
+            # Подписка на ресурс (только если соединение все еще активно)
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await connection_manager.subscribe(websocket, resource_type, namespace)
+            else:
+                logger.warning(f"WebSocket: Соединение закрылось перед подпиской на {resource_type}")
 
         # Обработка отписки от ресурсов
         elif message_type == "unsubscribe":
@@ -475,24 +496,21 @@ async def process_websocket_message(
                 await connection_manager.send_error(websocket, "Не указан тип ресурса для отписки")
                 return
 
-            # Отписка от ресурса
-            await connection_manager.unsubscribe(websocket, resource_type, namespace)
+            # Отписка от ресурса (только если соединение все еще активно)
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await connection_manager.unsubscribe(websocket, resource_type, namespace)
+            else:
+                logger.warning(f"WebSocket: Соединение закрылось перед отпиской от {resource_type}")
 
         # Запрос статистики
         elif message_type == "stats":
             stats = connection_manager.get_connection_stats()
-            await websocket.send_json({
-                "type": "stats",
-                "data": stats,
-                "timestamp": datetime.now().isoformat()
-            })
-
-        # Пинг для поддержания соединения
-        elif message_type == "ping":
-            await websocket.send_json({
-                "type": "pong",
-                "timestamp": datetime.now().isoformat()
-            })
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await websocket.send_json({
+                    "type": "stats",
+                    "data": stats,
+                    "timestamp": datetime.now().isoformat()
+                })
 
         # Неизвестный тип сообщения
         else:
@@ -500,4 +518,11 @@ async def process_websocket_message(
 
     except Exception as e:
         logger.error(f"WebSocket: Ошибка обработки сообщения: {str(e)}")
-        await connection_manager.send_error(websocket, f"Ошибка обработки сообщения: {str(e)}")
+        # Проверяем состояние соединения перед отправкой ошибки
+        try:
+            if websocket.client_state == WebSocketState.CONNECTED:
+                await connection_manager.send_error(websocket, f"Ошибка обработки сообщения: {str(e)}")
+            else:
+                logger.warning(f"WebSocket: Невозможно отправить сообщение об ошибке - соединение закрыто")
+        except Exception as send_error:
+            logger.error(f"WebSocket: Не удалось отправить сообщение об ошибке: {str(send_error)}")

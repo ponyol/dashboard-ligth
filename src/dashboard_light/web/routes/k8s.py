@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 import os
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -20,6 +21,7 @@ from dashboard_light.web.models import (
 )
 
 from fastapi import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 import asyncio
 from dashboard_light.web.websockets import connection_manager, process_websocket_message
 from dashboard_light.state_manager import get_resource
@@ -428,6 +430,9 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
         """WebSocket endpoint для получения событий Kubernetes в реальном времени."""
         # Подключение клиента
         user_id = "anonymous"  # По умолчанию анонимный пользователь
+        
+        # Принимаем соединение вне блока try-except для более четкой обработки ошибок
+        await websocket.accept()
 
         # Пытаемся получить информацию о пользователе из сессии
         try:
@@ -437,23 +442,67 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
         except Exception as e:
             logger.warning(f"Не удалось получить информацию о пользователе: {str(e)}")
 
-        await connection_manager.connect(websocket, user_id)
-
         try:
-            while True:
-                # Получение сообщения от клиента
-                data = await websocket.receive_json()
-                # Обработка сообщения
-                await process_websocket_message(websocket, data, app_config)
+            # Инициализация состояния соединения
+            websocket.state.user_id = user_id
+            websocket.state.connected_at = datetime.now()
+            websocket.state.subscriptions = set()
+            websocket.state.namespaces = set()
+            
+            # Регистрация соединения в менеджере
+            connection_manager.active_connections.append(websocket)
+            if user_id not in connection_manager.connections_by_user:
+                connection_manager.connections_by_user[user_id] = []
+            connection_manager.connections_by_user[user_id].append(websocket)
+            
+            logger.info(f"WebSocket: Пользователь {user_id} подключился")
+            
+            # Отправка сообщения о успешном подключении
+            await websocket.send_json({
+                "type": "connection",
+                "status": "connected",
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # Устанавливаем тайм-аут для получения сообщений
+            read_timeout = 30  # 30 секунд
+            
+            while websocket.client_state == WebSocketState.CONNECTED:
+                try:
+                    # Используем wait_for для добавления тайм-аута
+                    data = await asyncio.wait_for(
+                        websocket.receive_json(),
+                        timeout=read_timeout
+                    )
+                    
+                    # Проверка состояния соединения перед обработкой сообщения
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        # Обработка сообщения
+                        await process_websocket_message(websocket, data, app_config)
+                    else:
+                        logger.warning(f"WebSocket соединение больше не активно, состояние: {websocket.client_state}")
+                        break
+                        
+                except asyncio.TimeoutError:
+                    # При тайм-ауте проверяем состояние соединения для поддержания активности
+                    if websocket.client_state == WebSocketState.CONNECTED:
+                        logger.debug(f"WebSocket: Тайм-аут чтения, проверка соединения (пользователь: {user_id})")
+                        # Можно отправить пинг для поддержания соединения при необходимости
+                    else:
+                        logger.warning(f"WebSocket соединение больше не активно после тайм-аута, состояние: {websocket.client_state}")
+                        break
 
         except WebSocketDisconnect:
-            connection_manager.disconnect(websocket)
+            logger.info(f"WebSocket клиент отключился (пользователь: {user_id})")
         except Exception as e:
             logger.error(f"Ошибка WebSocket соединения: {str(e)}")
             try:
-                await websocket.close(code=1011)
-            except:
-                pass
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.close(code=1011)
+            except Exception as close_error:
+                logger.error(f"Ошибка при закрытии WebSocket соединения: {str(close_error)}")
+        finally:
+            # В любом случае отключаем соединение, чтобы освободить ресурсы
             connection_manager.disconnect(websocket)
 
     return router
