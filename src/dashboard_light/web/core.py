@@ -16,7 +16,19 @@ from fastapi.staticfiles import StaticFiles
 from dashboard_light.web.middleware import add_middlewares
 from dashboard_light.web.routes import create_router
 
+import asyncio
+from dashboard_light.k8s.watch import start_watching, stop_watching
+from fastapi import WebSocket
+from dashboard_light.web.websockets import clean_inactive_connections
+from fastapi.responses import FileResponse
+from starlette.websockets import WebSocketState
+
+# Добавить переменную для хранения задачи очистки
+_cleanup_task = None
+
 logger = logging.getLogger(__name__)
+
+# В файле src/dashboard_light/web/core.py, полностью перепишем функцию create_app:
 
 def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAPI:
     """Создание и настройка FastAPI приложения.
@@ -52,7 +64,31 @@ def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAP
     # Добавление пользовательских middleware
     add_middlewares(app)
 
-    # Создание и добавление роутеров
+    # Импортируем модули для WebSocket тут, чтобы избежать циклических импортов
+    from dashboard_light.web.websockets import handle_connection
+    from dashboard_light.k8s.watch import start_watching, get_active_watches
+    import websockets.exceptions
+
+    # Напрямую добавляем WebSocket эндпоинт в приложение
+    @app.websocket("/api/k8s/ws")
+    async def websocket_endpoint(websocket: WebSocket):
+        """WebSocket эндпоинт для получения обновлений в реальном времени."""
+        try:
+            # Проверяем, запущены ли наблюдатели
+            active_watches = get_active_watches()
+            if not active_watches:
+                # Запускаем наблюдение за ресурсами
+                logger.info("Запуск наблюдателей за ресурсами при первом WebSocket подключении")
+                await start_watching(k8s_client)
+
+            # Обработка WebSocket соединения
+            await handle_connection(websocket, app_config)
+        except Exception as e:
+            logger.error(f"Ошибка в WebSocket обработчике: {str(e)}")
+            if not websocket.client_state == WebSocketState.DISCONNECTED:
+                await websocket.close(code=1011, reason=f"Internal server error: {str(e)}")
+
+    # Создание и добавление API роутеров
     main_router = create_router(app_config, k8s_client)
     if main_router is not None:
         app.include_router(main_router)
@@ -60,34 +96,201 @@ def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAP
         logger.error("Не удалось создать основной роутер - он равен None")
         raise ValueError("Основной роутер приложения не был инициализирован корректно")
 
-    app.include_router(main_router)
-
-    # Переработаем определение пути к статическим файлам
+    # Определение пути к статическим файлам
     project_root = Path(__file__).parent.parent.parent.parent  # 4 уровня вверх от web/core.py
     static_dir = project_root / "resources" / "public"
-    # Монтирование статических файлов
+
+    # Монтирование статических файлов на /static вместо /
     if static_dir.exists():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
-        logger.info(f"Смонтированы статические файлы из {static_dir}")
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        logger.info(f"Смонтированы статические файлы из {static_dir} на /static")
+
+        # Редирект с корня на index.html если он существует
+        index_path = static_dir / "index.html"
+        if index_path.exists():
+            @app.get("/")
+            async def get_index():
+                return FileResponse(str(index_path))
     else:
         logger.warning(f"Директория статических файлов не найдена: {static_dir}")
-    # static_dir = os.path.join(os.path.dirname(__file__), "../../resources/public")
-    # if os.path.exists(static_dir):
-    #     app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
     # Добавление хука запуска для сохранения зависимостей в контексте приложения
     @app.on_event("startup")
     async def startup_event():
+        global _cleanup_task
+
         app.state.config = app_config
         app.state.k8s_client = k8s_client
+
+        # Запуск задачи периодической очистки неактивных соединений
+        async def periodic_cleanup():
+            while True:
+                try:
+                    await clean_inactive_connections(max_inactivity_seconds=1800)  # 30 минут
+                    await asyncio.sleep(300)  # Проверка каждые 5 минут
+                except asyncio.CancelledError:
+                    logger.info("Задача очистки неактивных соединений остановлена")
+                    break
+                except Exception as e:
+                    logger.error(f"Ошибка в задаче очистки соединений: {str(e)}")
+                    await asyncio.sleep(60)  # При ошибке ждем 1 минуту перед повтором
+
+        _cleanup_task = asyncio.create_task(periodic_cleanup())
+        logger.info("Запущена задача очистки неактивных WebSocket соединений")
+
         logger.info("FastAPI приложение запущено")
 
     # Добавление хука остановки
     @app.on_event("shutdown")
     async def shutdown_event():
+        global _cleanup_task
+
+        # Остановка всех задач наблюдения
+        await stop_watching()
+
+        # Остановка задачи очистки соединений
+        if _cleanup_task and not _cleanup_task.done():
+            _cleanup_task.cancel()
+            try:
+                await _cleanup_task
+            except asyncio.CancelledError:
+                pass
+
         logger.info("FastAPI приложение остановлено")
 
     return app
+
+# def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAPI:
+#     """Создание и настройка FastAPI приложения.
+
+#     Args:
+#         app_config: Конфигурация приложения
+#         k8s_client: Словарь с Kubernetes клиентом и API
+
+#     Returns:
+#         FastAPI: Настроенное FastAPI приложение
+#     """
+#     # Создание FastAPI приложения
+#     app = FastAPI(
+#         title="Dashboard Light",
+#         description="Система мониторинга EKS Deployments & Pods",
+#         version="0.1.0",
+#     )
+
+#     # Настройка CORS
+#     app.add_middleware(
+#         CORSMiddleware,
+#         allow_origins=["*"],  # В продакшене нужно ограничить
+#         allow_credentials=True,
+#         allow_methods=["*"],
+#         allow_headers=["*"],
+#     )
+
+#     # Добавление middleware для сессий (отдельный вызов)
+#     app.add_middleware(
+#         SessionMiddleware,
+#         secret_key=os.environ.get("SESSION_SECRET", secrets.token_hex(32))
+#     )
+#     # Добавление пользовательских middleware
+#     add_middlewares(app)
+
+#     # Создание и добавление роутеров
+#     main_router = create_router(app_config, k8s_client)
+#     if main_router is not None:
+#         app.include_router(main_router)
+#     else:
+#         logger.error("Не удалось создать основной роутер - он равен None")
+#         raise ValueError("Основной роутер приложения не был инициализирован корректно")
+
+#     # app.include_router(main_router)
+
+#     project_root = Path(__file__).parent.parent.parent.parent  # 4 уровня вверх от web/core.py
+#     static_dir = project_root / "resources" / "public"
+
+#     # Создание и добавление роутеров
+#     main_router = create_router(app_config, k8s_client)
+#     if main_router is not None:
+#         app.include_router(main_router)
+#     else:
+#         logger.error("Не удалось создать основной роутер - он равен None")
+#         raise ValueError("Основной роутер приложения не был инициализирован корректно")
+
+#     # Монтирование статических файлов ПОСЛЕ добавления всех маршрутов API
+#     if static_dir.exists():
+#         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+#         # Добавим отдельный маршрут для корневой страницы
+#         @app.get("/")
+#         async def get_index():
+#             return FileResponse(str(static_dir / "index.html"))
+#         logger.info(f"Смонтированы статические файлы из {static_dir}")
+#     else:
+#         logger.warning(f"Директория статических файлов не найдена: {static_dir}")
+#     # Переработаем определение пути к статическим файлам
+#     # project_root = Path(__file__).parent.parent.parent.parent  # 4 уровня вверх от web/core.py
+#     # static_dir = project_root / "resources" / "public"
+#     # # Монтирование статических файлов
+#     # if static_dir.exists():
+#     #     app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+#     #     logger.info(f"Смонтированы статические файлы из {static_dir}")
+#     # else:
+#     #     logger.warning(f"Директория статических файлов не найдена: {static_dir}")
+
+#     @app.on_event("startup")
+#     async def startup_event():
+#         global _cleanup_task
+
+#         app.state.config = app_config
+#         app.state.k8s_client = k8s_client
+
+#         # Запуск задачи периодической очистки неактивных соединений
+#         async def periodic_cleanup():
+#             while True:
+#                 try:
+#                     await clean_inactive_connections(max_inactivity_seconds=1800)  # 30 минут
+#                     await asyncio.sleep(300)  # Проверка каждые 5 минут
+#                 except asyncio.CancelledError:
+#                     logger.info("Задача очистки неактивных соединений остановлена")
+#                     break
+#                 except Exception as e:
+#                     logger.error(f"Ошибка в задаче очистки соединений: {str(e)}")
+#                     await asyncio.sleep(60)  # При ошибке ждем 1 минуту перед повтором
+
+#         _cleanup_task = asyncio.create_task(periodic_cleanup())
+#         logger.info("Запущена задача очистки неактивных WebSocket соединений")
+
+#         logger.info("FastAPI приложение запущено")
+
+#     # Изменить функцию shutdown_event, чтобы остановить задачу очистки:
+#     @app.on_event("shutdown")
+#     async def shutdown_event():
+#         global _cleanup_task
+
+#         # Остановка всех задач наблюдения
+#         await stop_watching()
+
+#         # Остановка задачи очистки соединений
+#         if _cleanup_task and not _cleanup_task.done():
+#             _cleanup_task.cancel()
+#             try:
+#                 await _cleanup_task
+#             except asyncio.CancelledError:
+#                 pass
+
+#         logger.info("FastAPI приложение остановлено")
+
+#     # Добавление хука запуска для сохранения зависимостей в контексте приложения
+#     # @app.on_event("startup")
+#     # async def startup_event():
+#     #     app.state.config = app_config
+#     #     app.state.k8s_client = k8s_client
+#     #     logger.info("FastAPI приложение запущено")
+
+#     # # Добавление хука остановки
+#     # @app.on_event("shutdown")
+#     # async def shutdown_event():
+#     #     logger.info("FastAPI приложение остановлено")
+
+#     # return app
 
 
 def start_server(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> Dict[str, Any]:

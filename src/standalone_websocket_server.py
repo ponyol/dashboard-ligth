@@ -1,20 +1,21 @@
-"""Точка входа в приложение Dashboard-Light."""
+#!/usr/bin/env python
+"""Отдельный WebSocket сервер без FastAPI."""
 
-import logging
-import signal
-import sys
 import asyncio
-import threading
-from functools import partial
-from typing import Any, Callable, Dict, List, Optional
+import json
+import logging
+import os
+import sys
+import signal
+import websockets
+
+# Добавляем родительскую директорию в путь для импорта
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dashboard_light.config import core as config
 from dashboard_light.k8s import core as k8s
-from dashboard_light.web import core as web
+from dashboard_light.state_manager import update_resource_state, subscribe, get_resources_by_type
 from dashboard_light.k8s.watch import start_watching, stop_watching, get_active_watches
-import websockets
-import json
-from dashboard_light.state_manager import subscribe, get_resources_by_type
 
 # Настройка логирования
 logging.basicConfig(
@@ -23,19 +24,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Глобальные переменные для управления WebSocket сервером
-ws_server = None
-ws_stop_event = None
-ws_task = None
+# Список активных соединений
 active_connections = set()
 
-def setup_signal_handlers(cleanup_func: Callable[[], None]) -> None:
-    """Настройка обработчиков сигналов для корректного завершения приложения."""
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, lambda signum, frame: cleanup_func())
+# Настройка приложения
+async def setup_app():
+    """Инициализация приложения."""
+    try:
+        # Загрузка конфигурации
+        logger.info("Загрузка конфигурации...")
+        app_config = config.load_config()
+        logger.info("Конфигурация загружена успешно")
 
+        # Инициализация Kubernetes клиента
+        logger.info("Инициализация Kubernetes клиента...")
+        k8s_client = k8s.create_k8s_client(app_config)
+        logger.info("Kubernetes клиент инициализирован")
 
-# WebSocket обработчик
+        return app_config, k8s_client
+    except Exception as e:
+        logger.error(f"Ошибка при инициализации: {str(e)}")
+        return {}, {}
+
+# Обработчик WebSocket соединений
 async def handle_websocket(websocket, path, app_config, k8s_client):
     """Обработка WebSocket соединения."""
     # Добавляем соединение в список активных
@@ -177,160 +188,41 @@ async def handle_websocket(websocket, path, app_config, k8s_client):
         active_connections.remove(websocket)
         logger.info(f"Соединение закрыто: {websocket.remote_address}")
 
+async def main():
+    """Основная функция для запуска сервера."""
+    # Инициализация приложения
+    app_config, k8s_client = await setup_app()
 
-def start_app() -> Dict[str, Any]:
-    """Запуск всех компонентов приложения.
+    # Запуск WebSocket сервера
+    port = 8765  # Используем другой порт, чтобы не конфликтовать с основным приложением
+    host = "0.0.0.0"
 
-    Returns:
-        Dict[str, Any]: Словарь с компонентами приложения
-    """
-    logger.info("Запуск Dashboard-Light...")
+    # Обработчик сигналов для корректного завершения
+    stop = asyncio.Future()
 
-    try:
-        # Загрузка конфигурации
-        app_config = config.load_config()
-        logger.info("Конфигурация загружена успешно")
+    def handle_signal(signal, frame):
+        logger.info("Получен сигнал завершения")
+        stop.set_result(None)
 
-        # Инициализация Kubernetes клиента
-        k8s_client = k8s.create_k8s_client(app_config)
-        logger.info("Kubernetes клиент инициализирован")
+    # Регистрация обработчиков сигналов
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, handle_signal)
 
-        # Запуск веб-сервера
-        web_server = web.start_server(app_config, k8s_client)
-        logger.info("Веб-сервер запущен")
+    # Запуск сервера
+    logger.info(f"Запуск WebSocket сервера на {host}:{port}")
+    async with websockets.serve(
+        lambda ws, path: handle_websocket(ws, path, app_config, k8s_client),
+        host, port
+    ):
+        # Ожидание сигнала завершения
+        await stop
 
-        # Запуск WebSocket сервера в отдельной асинхронной задаче
-        global ws_task
-        loop = asyncio.get_event_loop()
-        ws_task = loop.create_task(run_websocket_server(app_config, k8s_client))
-        logger.info("WebSocket сервер запускается...")
+    # Остановка наблюдения
+    logger.info("Остановка наблюдения за ресурсами...")
+    await stop_watching()
 
-        return {
-            "config": app_config,
-            "k8s_client": k8s_client,
-            "web_server": web_server,
-            "ws_task": ws_task,
-        }
-    except Exception as e:
-        logger.error(f"Ошибка при запуске приложения: {str(e)}")
-        sys.exit(1)
-
-def stop_app(components: Dict[str, Any]) -> None:
-    """Остановка всех компонентов приложения.
-
-    Args:
-        components: Словарь с компонентами приложения
-    """
-    logger.info("Остановка Dashboard-Light...")
-
-    # Остановка WebSocket сервера
-    global ws_server
-    if ws_server:
-        # Создаем задачу для остановки сервера
-        async def close_websocket():
-            ws_server.close()
-            await ws_server.wait_closed()
-            logger.info("WebSocket сервер остановлен")
-
-        # Запускаем задачу в текущем цикле событий, если он работает
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(close_websocket())
-            else:
-                loop.run_until_complete(close_websocket())
-        except Exception as e:
-            logger.error(f"Ошибка при остановке WebSocket сервера: {str(e)}")
-
-    # Остановка веб-сервера
-    web_server = components.get("web_server")
-    if web_server:
-        web.stop_server(web_server)
-        logger.info("Веб-сервер остановлен")
-
-    # Очистка ресурсов K8s клиента
-    k8s_client = components.get("k8s_client")
-    if k8s_client:
-        k8s.cleanup_k8s_client(k8s_client)
-        logger.info("Kubernetes клиент остановлен")
-
-    # Остановка наблюдения за ресурсами
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.create_task(stop_watching())
-        else:
-            loop.run_until_complete(stop_watching())
-        logger.info("Наблюдение за ресурсами остановлено")
-    except Exception as e:
-        logger.error(f"Ошибка при остановке наблюдения: {str(e)}")
-
-    logger.info("Приложение Dashboard-Light остановлено")
-
-    # Явно завершаем процесс
-    sys.exit(0)
-
-def run_websocket_thread(app_config, k8s_client):
-    """Запускает WebSocket сервер в отдельном потоке."""
-    logger.info("Запуск WebSocket сервера в отдельном потоке...")
-
-    # Создаем новый цикл событий для этого потока
-    asyncio.set_event_loop(asyncio.new_event_loop())
-    loop = asyncio.get_event_loop()
-
-    # Запускаем сервер
-    ws_port = 8765
-
-    async def start_server():
-        global ws_server
-        logger.info(f"Запуск WebSocket сервера на порту {ws_port}...")
-
-        try:
-            # Запуск сервера
-            ws_server = await websockets.serve(
-                lambda ws, path: handle_websocket(ws, path, app_config, k8s_client),
-                "0.0.0.0", ws_port
-            )
-
-            logger.info(f"WebSocket сервер запущен на порту {ws_port}")
-
-            # Держим сервер запущенным
-            await asyncio.Future()  # Бесконечное ожидание
-        except Exception as e:
-            logger.error(f"Ошибка при запуске WebSocket сервера: {str(e)}")
-
-    # Запускаем сервер в цикле событий
-    try:
-        loop.run_until_complete(start_server())
-    except Exception as e:
-        logger.error(f"Ошибка в цикле событий WebSocket: {str(e)}")
-    finally:
-        logger.info("WebSocket поток завершился")
-
-def main() -> None:
-    """Основная функция для запуска приложения."""
-    components = start_app()
-
-    # Настройка обработчиков сигналов для корректного завершения
-    setup_signal_handlers(partial(stop_app, components))
-
-    try:
-        # Запуск отдельного потока для WebSocket сервера
-        ws_thread = threading.Thread(target=run_websocket_thread,
-                                    args=(components["config"], components["k8s_client"]),
-                                    daemon=True)
-        ws_thread.start()
-        components["ws_thread"] = ws_thread
-
-        # Бесконечный цикл для поддержания работы основного приложения
-        # до получения сигнала остановки
-        import time
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Получен сигнал остановки приложения")
-    finally:
-        stop_app(components)
+    logger.info("Сервер остановлен")
 
 if __name__ == "__main__":
-    main()
+    # Запуск приложения
+    asyncio.run(main())
