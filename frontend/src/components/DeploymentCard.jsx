@@ -42,8 +42,8 @@ export default function DeploymentCard({ deployment, onClick }) {
   // Получение стилей в зависимости от статуса
   const { borderColor, bgColor, headerBg } = getStatusStyles(deployment.status);
 
-  // Обработка имени деплоймента (удаление суффикса -deploy)
-  const displayName = deployment.name.replace(/-deploy$/, '');
+  // Обработка имени контроллера (удаление суффикса -deploy или -statefulset)
+  const displayName = deployment.name.replace(/-deploy$/, '').replace(/-statefulset$/, '');
 
   // Обработка имени контейнера (если есть, удаление суффикса -pod)
   const containerName = deployment.main_container?.name?.replace(/-pod$/, '') || 'N/A';

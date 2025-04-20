@@ -1,12 +1,14 @@
 // src/App.jsx
 import { useState, useEffect } from 'react';
-import Dashboard from './components/Dashboard';
+import NamespaceDashboard from './components/NamespaceDashboard';
+import ProjectDashboard from './components/ProjectDashboard';
 import Sidebar from './components/Sidebar';
 import './App.css';
 
 function App() {
   const [theme, setTheme] = useState('light');
   const [menuCollapsed, setMenuCollapsed] = useState(true);
+  const [activeMenu, setActiveMenu] = useState('status-namespace'); // По умолчанию открываем страницу статуса неймспейсов
 
   // Инициализация темы при загрузке
   useEffect(() => {
@@ -19,6 +21,17 @@ function App() {
     // Загрузка состояния меню
     const savedMenuState = localStorage.getItem('dashboard-light-menu') === 'collapsed';
     setMenuCollapsed(savedMenuState);
+    
+    // Слушаем событие смены меню
+    const handleMenuChange = (event) => {
+      setActiveMenu(event.detail.menuId);
+    };
+    
+    window.addEventListener('menu-change', handleMenuChange);
+    
+    return () => {
+      window.removeEventListener('menu-change', handleMenuChange);
+    };
   }, []);
 
   const toggleTheme = () => {
@@ -32,6 +45,22 @@ function App() {
     const newState = !menuCollapsed;
     setMenuCollapsed(newState);
     localStorage.setItem('dashboard-light-menu', newState ? 'collapsed' : 'expanded');
+  };
+  
+  // Определяем, какой компонент нужно отображать в зависимости от выбранного пункта меню
+  const renderContent = () => {
+    switch (activeMenu) {
+      case 'status-namespace':
+        return <NamespaceDashboard />;
+      case 'status-project':
+        return <ProjectDashboard />;
+      case 'events':
+        return <div className="p-6 text-center text-gray-600 dark:text-gray-400">Events view coming soon</div>;
+      case 'settings':
+        return <div className="p-6 text-center text-gray-600 dark:text-gray-400">Settings view coming soon</div>;
+      default:
+        return <NamespaceDashboard />;
+    }
   };
 
   return (
@@ -73,7 +102,7 @@ function App() {
       <div className="flex flex-1 overflow-hidden w-full">
         <Sidebar collapsed={menuCollapsed} />
         <main className="flex-1 w-full overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">
-          <Dashboard />
+          {renderContent()}
         </main>
       </div>
     </div>

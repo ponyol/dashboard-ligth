@@ -2,10 +2,13 @@
 
 import logging
 import time
-from typing import Callable
+import json
+from typing import Callable, Dict, Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import ResponseValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
 
@@ -108,12 +111,65 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class ValidationErrorMiddleware(BaseHTTPMiddleware):
+    """Middleware для обработки ошибок валидации."""
+
+    async def dispatch(self, request: Request, call_next: Callable):
+        """Обработка запроса с отловом ошибок валидации.
+
+        Args:
+            request: HTTP запрос
+            call_next: Следующий обработчик в цепочке
+
+        Returns:
+            Ответ от следующего обработчика или обработанная ошибка
+        """
+        try:
+            return await call_next(request)
+        except ResponseValidationError as exc:
+            logger.error(f"Validation error: {str(exc)}")
+            
+            # Попытка извлечь структурированные данные из ошибки
+            errors = []
+            if hasattr(exc, "errors"):
+                for error in exc.errors():
+                    loc = ".".join([str(l) for l in error.get("loc", [])])
+                    errors.append({
+                        "location": loc,
+                        "message": error.get("msg", "Unknown validation error"),
+                        "type": error.get("type", "unknown_error"),
+                        "input": str(error.get("input", ""))[:100]  # Ограничиваем длину вывода
+                    })
+            
+            # Создаем понятный ответ
+            content = {
+                "detail": "Response validation error",
+                "errors": errors
+            }
+            
+            # Для упрощения отладки можно добавить попытку исправить ошибку
+            tips = []
+            missing_fields = [e for e in errors if e["type"] == "missing"]
+            if missing_fields:
+                tips.append("В ответе отсутствуют обязательные поля. Проверьте модель данных.")
+            
+            content["tips"] = tips
+            
+            return JSONResponse(
+                status_code=500,
+                content=content
+            )
+
+
 def add_middlewares(app: FastAPI) -> None:
     """Добавление всех необходимых middleware к приложению.
 
     Args:
         app: FastAPI приложение
     """
+    # Добавление middleware для обработки ошибок валидации
+    app.add_middleware(ValidationErrorMiddleware)
+    
     # Добавление middleware для логирования
     app.add_middleware(LoggingMiddleware)
 

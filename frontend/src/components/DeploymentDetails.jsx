@@ -17,8 +17,8 @@ export default function DeploymentDetails({ deployment, onClose, isOpen }) {
     return null;
   }
 
-  // Обработка имени деплоймента (удаление суффикса -deploy)
-  const displayName = deployment.name.replace(/-deploy$/, '');
+  // Обработка имени контроллера (удаление суффикса -deploy или -statefulset)
+  const displayName = deployment.name.replace(/-deploy$/, '').replace(/-statefulset$/, '');
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -27,7 +27,7 @@ export default function DeploymentDetails({ deployment, onClose, isOpen }) {
         <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center">
             <h2 className="text-xl font-bold text-gray-800 dark:text-white mr-3">{displayName}</h2>
-            <StatusBadge status={deployment.status} type="deployment" />
+            <StatusBadge status={deployment.status} type={deployment.controller_type || "deployment"} />
           </div>
           <button
             onClick={onClose}
@@ -83,7 +83,7 @@ export default function DeploymentDetails({ deployment, onClose, isOpen }) {
               {/* Базовая информация */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
-                  <h3 className="text-lg font-medium text-gray-800 dark:text-white mb-3">Deployment Info</h3>
+                  <h3 className="text-lg font-medium text-gray-800 dark:text-white mb-3">Controller Info</h3>
                   <div className="space-y-2">
                     <div className="grid grid-cols-3 gap-2">
                       <span className="text-gray-500 dark:text-gray-400">Name:</span>
@@ -95,7 +95,9 @@ export default function DeploymentDetails({ deployment, onClose, isOpen }) {
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       <span className="text-gray-500 dark:text-gray-400">Status:</span>
-                      <span className="col-span-2"><StatusBadge status={deployment.status} type="deployment" /></span>
+                      <span className="col-span-2">
+                        <StatusBadge status={deployment.status} type={deployment.controller_type || 'deployment'} />
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -242,7 +244,7 @@ export default function DeploymentDetails({ deployment, onClose, isOpen }) {
               <div className="bg-gray-50 dark:bg-gray-700 rounded-lg overflow-hidden">
                 <pre className="p-4 overflow-x-auto text-sm text-gray-800 dark:text-gray-200 font-mono">
                   {`apiVersion: apps/v1
-kind: Deployment
+kind: ${deployment.controller_type === 'statefulset' ? 'StatefulSet' : 'Deployment'}
 metadata:
   name: ${deployment.name}
   namespace: ${deployment.namespace}
@@ -259,6 +261,7 @@ ${Object.entries(deployment.labels || {}).map(([k, v]) => `        ${k}: ${v}`).
       containers:
       - name: ${deployment.main_container?.name || 'main'}
         image: ${deployment.main_container?.image || 'image:latest'}
+${deployment.controller_type === 'statefulset' ? `  serviceName: ${deployment.name}` : ''}
 `}
                 </pre>
               </div>

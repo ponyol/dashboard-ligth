@@ -205,7 +205,13 @@ def get_pod_metrics_by_name(k8s_client: Dict[str, Any], namespace: str, pod_name
                 try:
                     # Преобразование строки timestamp в datetime
                     if isinstance(timestamp, str):
-                        timestamp_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                        # Пробуем разные форматы даты в случае ошибки
+                        try:
+                            timestamp_dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                        except ValueError:
+                            # Если формат не поддерживается fromisoformat, пробуем другие варианты
+                            import dateutil.parser
+                            timestamp_dt = dateutil.parser.parse(timestamp)
                     else:
                         timestamp_dt = timestamp
 
@@ -217,6 +223,8 @@ def get_pod_metrics_by_name(k8s_client: Dict[str, Any], namespace: str, pod_name
                     pod_metrics["age_seconds"] = age_seconds
                 except Exception as e:
                     logger.warning(f"Ошибка при расчете возраста метрик: {str(e)}")
+                    # Добавляем значение по умолчанию, чтобы избежать проблем с валидацией
+                    pod_metrics["age_seconds"] = 0.0
 
         return pod_metrics
     except Exception as e:

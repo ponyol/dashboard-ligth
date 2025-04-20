@@ -1094,6 +1094,422 @@ def initialize_cache() -> None:
           return "progressing"
 #+end_src
 
+** src/dashboard_light/k8s/statefulsets.py
+Работа с Statefulsets:
+
+#+begin_src python :tangle src/dashboard_light/k8s/statefulsets.py :mkdirp yes
+  """Модуль для работы с StatefulSets Kubernetes."""
+
+  import logging
+  import re
+  from typing import Any, Dict, List, Optional
+
+  from kubernetes import client
+  from kubernetes.client.exceptions import ApiException
+
+  from dashboard_light.k8s.cache import with_cache
+
+  logger = logging.getLogger(__name__)
+
+  # Тестовые данные для режима разработки
+  TEST_STATEFULSETS = [
+      {
+          "name": "test-statefulset-1",
+          "namespace": "default",
+          "replicas": {
+              "desired": 3,
+              "ready": 3,
+              "updated": 3,
+          },
+          "main_container": {
+              "name": "test-container-1",
+              "image": "redis:latest",
+              "image_tag": "latest",
+          },
+          "labels": {"app": "test-db-1"},
+          "status": "healthy"
+      },
+      {
+          "name": "test-statefulset-2",
+          "namespace": "default",
+          "replicas": {
+              "desired": 2,
+              "ready": 1,
+              "updated": 1,
+          },
+          "main_container": {
+              "name": "test-container-2",
+              "image": "postgres:latest",
+              "image_tag": "latest",
+          },
+          "labels": {"app": "test-db-2"},
+          "status": "progressing"
+      },
+      {
+          "name": "test-statefulset-3",
+          "namespace": "default",
+          "replicas": {
+              "desired": 0,
+              "ready": 0,
+              "updated": 0,
+          },
+          "main_container": {
+              "name": "test-container-3",
+              "image": "mysql:latest",
+              "image_tag": "latest",
+          },
+          "labels": {"app": "test-db-3"},
+          "status": "scaled_zero"
+      },
+      {
+          "name": "db-statefulset",
+          "namespace": "project-app1-staging",
+          "replicas": {
+              "desired": 1,
+              "ready": 1,
+              "updated": 1,
+          },
+          "main_container": {
+              "name": "db-main",
+              "image": "registry-minor:5000/project/postgres:staging-a1dcf6ff",
+              "image_tag": "staging-a1dcf6ff",
+          },
+          "labels": {"app": "project-db"},
+          "status": "healthy"
+      }
+  ]
+
+  @with_cache("statefulsets")
+  def list_statefulsets_for_namespace(k8s_client: Dict[str, Any], namespace: str) -> List[Dict[str, Any]]:
+      """Получение списка StatefulSets в указанном пространстве имен.
+
+      Args:
+          k8s_client: Словарь с Kubernetes клиентом и API
+          namespace: Имя пространства имен
+
+      Returns:
+          List[Dict[str, Any]]: Список данных о StatefulSets
+      """
+      # Проверяем, в режиме мока мы или нет
+      if k8s_client.get("is_mock", False):
+          logger.info(f"K8S: Работаем в режиме мока, возвращаем тестовые данные для неймспейса {namespace}")
+          # Возвращаем только те тестовые StatefulSets, которые в указанном неймспейсе
+          return [s for s in TEST_STATEFULSETS if s["namespace"] == namespace or namespace == ""]
+
+      try:
+          apps_v1_api = k8s_client.get("apps_v1_api")
+
+          if not apps_v1_api:
+              logger.warning(f"K8S: API клиент для Apps/v1 не инициализирован, "
+                            f"возвращаем пустой список для {namespace}")
+              return []
+
+          result = apps_v1_api.list_namespaced_stateful_set(namespace=namespace)
+
+          if not result or not result.items:
+              logger.info(f"K8S: Нет StatefulSets в неймспейсе {namespace}")
+              return []
+
+          # Преобразование в словари с нужными полями
+          statefulsets = []
+          for item in result.items:
+              metadata = item.metadata
+              spec = item.spec
+              status = item.status
+
+              # Получение информации о контейнерах
+              containers = []
+              if spec.template and spec.template.spec and spec.template.spec.containers:
+                  containers = spec.template.spec.containers
+
+              main_container = containers[0] if containers else None
+
+              # Формирование данных о StatefulSet
+              statefulset_data = {
+                  "name": metadata.name,
+                  "namespace": metadata.namespace,
+                  "replicas": {
+                      "desired": spec.replicas,
+                      "ready": status.ready_replicas if status.ready_replicas else 0,
+                      "updated": status.updated_replicas if status.updated_replicas else 0,
+                  }
+              }
+
+              # Добавление информации о главном контейнере, если он есть
+              if main_container:
+                  image = main_container.image
+                  image_tag = image.split(":")[-1] if ":" in image else "latest"
+
+                  statefulset_data["main_container"] = {
+                      "name": main_container.name,
+                      "image": image,
+                      "image_tag": image_tag,
+                  }
+
+              # Добавление лейблов
+              if metadata.labels:
+                  statefulset_data["labels"] = metadata.labels
+
+              statefulsets.append(statefulset_data)
+
+          return statefulsets
+      except ApiException as e:
+          logger.error(f"K8S: Ошибка API при получении StatefulSets: {str(e)}")
+          return []
+      except Exception as e:
+          logger.error(f"K8S: Ошибка получения списка StatefulSets: {str(e)}")
+          return []
+
+
+  def list_statefulsets_multi_ns(k8s_client: Dict[str, Any], namespaces: List[str]) -> List[Dict[str, Any]]:
+      """Получение списка StatefulSets для нескольких пространств имен."""
+      # Проверяем, в режиме мока мы или нет
+      if k8s_client.get("is_mock", False):
+          logger.info(f"K8S: Работаем в режиме мока, возвращаем тестовые данные для неймспейсов {namespaces}")
+          # Если список неймспейсов пуст или содержит пустую строку, возвращаем все
+          if not namespaces or "" in namespaces:
+              return TEST_STATEFULSETS
+          # Иначе фильтруем по указанным неймспейсам
+          return [s for s in TEST_STATEFULSETS if s["namespace"] in namespaces]
+
+      statefulsets = []
+      for namespace in namespaces:
+          namespace_statefulsets = list_statefulsets_for_namespace(k8s_client, namespace)
+          statefulsets.extend(namespace_statefulsets)
+
+      return statefulsets
+
+
+  def get_statefulset_status(statefulset: Dict[str, Any]) -> str:
+      """Определение статуса StatefulSet на основе его параметров.
+
+      Args:
+          statefulset: Данные о StatefulSet
+
+      Returns:
+          str: Статус StatefulSet (healthy, progressing, scaled_zero, error)
+      """
+      desired = statefulset.get("replicas", {}).get("desired")
+      ready = statefulset.get("replicas", {}).get("ready", 0)
+
+      if desired is None:
+          return "error"
+      elif desired == 0:
+          return "scaled_zero"
+      elif ready == desired:
+          return "healthy"
+      else:
+          return "progressing"
+#+end_src
+
+** src/dashboard_light/k8s/controllers.py
+Работа с Statefulsets:
+
+#+begin_src python :tangle src/dashboard_light/k8s/controllers.py :mkdirp yes
+  """Модуль для обобщенной работы с контроллерами Kubernetes (Deployments и StatefulSets)."""
+
+  import logging
+  import re
+  from typing import Any, Dict, List, Optional, Tuple, Callable
+
+  from dashboard_light.k8s import deployments, statefulsets
+  from dashboard_light.k8s.cache import with_cache
+
+  logger = logging.getLogger(__name__)
+
+  # Тип контроллера
+  CONTROLLER_TYPE_DEPLOYMENT = "deployment"
+  CONTROLLER_TYPE_STATEFULSET = "statefulset"
+
+
+  def list_controllers_for_namespace(
+      k8s_client: Dict[str, Any],
+      namespace: str
+  ) -> List[Dict[str, Any]]:
+      """Получение списка контроллеров (Deployments и StatefulSets) в указанном пространстве имен.
+
+      Args:
+          k8s_client: Словарь с Kubernetes клиентом и API
+          namespace: Имя пространства имен
+
+      Returns:
+          List[Dict[str, Any]]: Список данных о контроллерах
+      """
+      # Получаем deployments
+      deployment_items = deployments.list_deployments_for_namespace(k8s_client, namespace)
+      # Добавляем тип контроллера и статус
+      for item in deployment_items:
+          item["controller_type"] = CONTROLLER_TYPE_DEPLOYMENT
+          item["status"] = deployments.get_deployment_status(item)
+
+      # Получаем statefulsets
+      statefulset_items = statefulsets.list_statefulsets_for_namespace(k8s_client, namespace)
+      # Добавляем тип контроллера и статус
+      for item in statefulset_items:
+          item["controller_type"] = CONTROLLER_TYPE_STATEFULSET
+          item["status"] = statefulsets.get_statefulset_status(item)
+
+      # Объединяем списки
+      return deployment_items + statefulset_items
+
+
+  def list_controllers_multi_ns(
+      k8s_client: Dict[str, Any],
+      namespaces: List[str]
+  ) -> List[Dict[str, Any]]:
+      """Получение списка контроллеров (Deployments и StatefulSets) для нескольких пространств имен.
+
+      Args:
+          k8s_client: Словарь с Kubernetes клиентом и API
+          namespaces: Список имен пространств имен
+
+      Returns:
+          List[Dict[str, Any]]: Список данных о контроллерах
+      """
+      controllers = []
+
+      # Если список пустой, вернуть пустой список
+      if not namespaces:
+          return []
+
+      # Если есть пустая строка, то получаем все контроллеры для всех неймспейсов
+      if "" in namespaces:
+          # Получаем все deployments
+          deployment_items = deployments.list_deployments_multi_ns(k8s_client, [""])
+          # Добавляем тип контроллера и статус
+          for item in deployment_items:
+              item["controller_type"] = CONTROLLER_TYPE_DEPLOYMENT
+              item["status"] = deployments.get_deployment_status(item)
+          controllers.extend(deployment_items)
+
+          # Получаем все statefulsets
+          statefulset_items = statefulsets.list_statefulsets_multi_ns(k8s_client, [""])
+          # Добавляем тип контроллера и статус
+          for item in statefulset_items:
+              item["controller_type"] = CONTROLLER_TYPE_STATEFULSET
+              item["status"] = statefulsets.get_statefulset_status(item)
+          controllers.extend(statefulset_items)
+      else:
+          # Иначе получаем контроллеры для указанных неймспейсов
+          for namespace in namespaces:
+              ns_controllers = list_controllers_for_namespace(k8s_client, namespace)
+              controllers.extend(ns_controllers)
+
+      return controllers
+
+
+  def filter_controllers_by_patterns(
+      controllers: List[Dict[str, Any]],
+      patterns: List[str]
+  ) -> List[Dict[str, Any]]:
+      """Фильтрация контроллеров по списку регулярных выражений имен.
+
+      Args:
+          controllers: Список данных о контроллерах
+          patterns: Список регулярных выражений для фильтрации по имени
+
+      Returns:
+          List[Dict[str, Any]]: Отфильтрованный список данных о контроллерах
+      """
+      # Если паттерны пустые или есть ".*", возвращаем все контроллеры
+      if not patterns or any(pattern == ".*" for pattern in patterns):
+          return controllers
+
+      # Компиляция регулярных выражений для оптимизации
+      compiled_patterns = [re.compile(pattern) for pattern in patterns]
+
+      # Фильтрация контроллеров
+      filtered = [
+          controller for controller in controllers
+          if any(pattern.match(controller["name"]) for pattern in compiled_patterns)
+      ]
+
+      return filtered
+
+
+  def get_controller_by_name_and_namespace(
+      k8s_client: Dict[str, Any],
+      namespace: str,
+      name: str
+  ) -> Tuple[Optional[Dict[str, Any]], str]:
+      """Получение контроллера по имени и неймспейсу с определением типа контроллера.
+
+      Args:
+          k8s_client: Словарь с Kubernetes клиентом и API
+          namespace: Имя пространства имен
+          name: Имя контроллера
+
+      Returns:
+          Tuple[Optional[Dict[str, Any]], str]: Кортеж (контроллер, тип_контроллера)
+      """
+      # Сначала ищем среди Deployments
+      deployment_list = deployments.list_deployments_for_namespace(k8s_client, namespace)
+      for deployment in deployment_list:
+          if deployment["name"] == name:
+              deployment["controller_type"] = CONTROLLER_TYPE_DEPLOYMENT
+              deployment["status"] = deployments.get_deployment_status(deployment)
+              return deployment, CONTROLLER_TYPE_DEPLOYMENT
+
+      # Если не нашли, ищем среди StatefulSets
+      statefulset_list = statefulsets.list_statefulsets_for_namespace(k8s_client, namespace)
+      for statefulset in statefulset_list:
+          if statefulset["name"] == name:
+              statefulset["controller_type"] = CONTROLLER_TYPE_STATEFULSET
+              statefulset["status"] = statefulsets.get_statefulset_status(statefulset)
+              return statefulset, CONTROLLER_TYPE_STATEFULSET
+
+      # Если не нашли в обоих списках
+      return None, ""
+
+
+  def get_controller_pods(
+      k8s_client: Dict[str, Any],
+      namespace: str,
+      name: str,
+      controller_type: str
+  ) -> List[Dict[str, Any]]:
+      """Получение подов, связанных с контроллером.
+
+      Args:
+          k8s_client: Словарь с Kubernetes клиентом и API
+          namespace: Имя пространства имен
+          name: Имя контроллера
+          controller_type: Тип контроллера (deployment или statefulset)
+
+      Returns:
+          List[Dict[str, Any]]: Список подов контроллера
+      """
+      from dashboard_light.k8s import pods
+
+      if controller_type == CONTROLLER_TYPE_DEPLOYMENT:
+          return pods.list_deployment_pods(k8s_client, namespace, name)
+      elif controller_type == CONTROLLER_TYPE_STATEFULSET:
+          # Для StatefulSet ищем поды по селектору меток
+          try:
+              # Получаем StatefulSet
+              apps_v1_api = k8s_client.get("apps_v1_api")
+              statefulset = apps_v1_api.read_namespaced_stateful_set(name, namespace)
+
+              # Получаем селектор меток
+              selector = statefulset.spec.selector
+              if not selector or not selector.match_labels:
+                  logger.warning(f"Не удалось получить селектор меток для StatefulSet {name}")
+                  return []
+
+              # Формируем строку селектора
+              label_selector = ",".join([f"{k}={v}" for k, v in selector.match_labels.items()])
+
+              # Получаем поды по селектору
+              pod_list = pods.list_pods_for_namespace(k8s_client, namespace, label_selector)
+              return pod_list
+          except Exception as e:
+              logger.error(f"Ошибка при получении подов StatefulSet: {str(e)}")
+              return []
+      else:
+          logger.warning(f"Неизвестный тип контроллера: {controller_type}")
+          return []
+#+end_src
+
 * Утилиты
 
 ** src/dashboard_light/utils/__init__.py

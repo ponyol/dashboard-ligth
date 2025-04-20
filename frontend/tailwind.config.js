@@ -14,6 +14,12 @@ export default {
         'scaled-zero': '#6c757d',  // Серый/Синий (Scaled to Zero/Idle)
         'error': '#dc3545',        // Красный (Error)
 
+        // Цвета для статусов StatefulSets (такие же, как для Deployments)
+        'statefulset-healthy': '#28a745',      // Зеленый (Running/Healthy)
+        'statefulset-progressing': '#ffc107',  // Желтый/Оранжевый (Progressing/Unhealthy)
+        'statefulset-scaled-zero': '#6c757d',  // Серый/Синий (Scaled to Zero/Idle)
+        'statefulset-error': '#dc3545',        // Красный (Error)
+
         // Цвета для статусов Pods согласно ТЗ
         'pod-running': '#28a745',    // Зеленый
         'pod-succeeded': '#17a2b8',  // Информационный синий

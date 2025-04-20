@@ -9,7 +9,8 @@ export default function Filters({
   selectedNamespace,
   onNamespaceChange,
   onRefresh,
-  isLoading
+  isLoading,
+  showNamespaceFilter = true // По умолчанию показываем фильтр неймспейсов
 }) {
   // Обработчик изменения выбранного неймспейса
   const handleNamespaceChange = (e) => {
@@ -22,26 +23,28 @@ export default function Filters({
         <h2 className="text-md font-semibold text-gray-700 dark:text-gray-200 mb-2">Filters</h2>
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between">
-          {/* Селектор неймспейса */}
-          <div className="flex-grow mb-2 sm:mb-0 sm:mr-3 w-full sm:w-auto">
-            <div className="relative">
-              <select
-                value={selectedNamespace}
-                onChange={handleNamespaceChange}
-                className="block pl-2 pr-8 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">All Namespaces</option>
-                {namespaces.map((ns) => (
-                  <option key={ns.name} value={ns.name}>
-                    {ns.name}
-                  </option>
-                ))}
-              </select>
+          {/* Селектор неймспейса - показываем только если showNamespaceFilter=true */}
+          {showNamespaceFilter && (
+            <div className="flex-grow mb-2 sm:mb-0 sm:mr-3 w-full sm:w-auto">
+              <div className="relative">
+                <select
+                  value={selectedNamespace}
+                  onChange={handleNamespaceChange}
+                  className="block pl-2 pr-8 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">All Namespaces</option>
+                  {namespaces.map((ns) => (
+                    <option key={ns.name} value={ns.name}>
+                      {ns.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Кнопка обновления */}
-          <div>
+          <div className={showNamespaceFilter ? "" : "ml-auto"}>
             <button
               onClick={onRefresh}
               disabled={isLoading}

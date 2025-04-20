@@ -42,6 +42,12 @@ export const k8sApi = {
   },
   getDeployment: (namespace, name) =>
     fetchApi(`/k8s/deployments/${namespace}/${name}`),
+  getControllers: (namespace = null) => {
+    const query = namespace ? `?namespace=${namespace}` : '';
+    return fetchApi(`/k8s/controllers${query}`);
+  },
+  getController: (namespace, name) =>
+    fetchApi(`/k8s/controllers/${namespace}/${name}`),
   getPods: (namespace = null) => {
     const query = namespace ? `?namespace=${namespace}` : '';
     return fetchApi(`/k8s/pods${query}`);
@@ -59,7 +65,7 @@ export const authApi = {
 
 export default { k8s: k8sApi, auth: authApi };
 
-// // Базовый URL для API
+// // Используем относительный путь для API вместо абсолютного
 // const API_BASE_URL = '/api';
 
 // /**

@@ -19,7 +19,7 @@ spec:
       serviceAccountName: dashboard-light # Используем созданный ServiceAccount
       containers:
       - name: dashboard-light
-        image: python:3.13.2-alpine
+        image: python:3.13-bookworm
         # image: clojure:temurin-24-lein-noble
         imagePullPolicy: Always
         command:
@@ -30,8 +30,6 @@ spec:
         ports:
         - containerPort: 3000
           name: http
-        - name: repl
-          containerPort: 7888
           protocol: TCP
         env:
         - name: LOG_LEVEL
@@ -45,6 +43,66 @@ spec:
           requests:
             cpu: 100m
             memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-light-svc
+  namespace: default
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      targetPort: http
+  selector:
+    app: dashboard-light
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dashboard-light-internal-ing
+  namespace: default
+  labels:
+    app.kubernetes.io/name: dashboard-light
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: k8sligth-develop.int.wldev.app
+spec:
+  ingressClassName: internal-nginx
+  rules:
+    - host: k8sligth-develop.int.wldev.app
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard-light-svc
+                port:
+                  number: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dashboard-light-external-ing
+  namespace: default
+  labels:
+    app.kubernetes.io/name: dashboard-light
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: k8sligth-develop.wldev.app
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: k8sligth-develop.wldev.app
+      3010-tcp:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard-light-svc
+                port:
+                  number: 3000
 # ---
 # apiVersion: apps/v1
 # kind: Deployment

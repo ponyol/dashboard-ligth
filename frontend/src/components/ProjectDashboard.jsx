@@ -1,4 +1,4 @@
-// src/components/Dashboard.jsx
+// src/components/ProjectDashboard.jsx
 import { useEffect, useCallback, useState } from 'react';
 import useK8sApi from '../hooks/useK8sApi';
 import useInterval from '../hooks/useInterval';
@@ -8,9 +8,9 @@ import DeploymentDetails from './DeploymentDetails';
 import Loading from './Loading';
 
 /**
- * Основной компонент дашборда
+ * Компонент дашборда проектов
  */
-export default function Dashboard() {
+export default function ProjectDashboard() {
   const {
     namespaces,
     controllers,
@@ -21,7 +21,7 @@ export default function Dashboard() {
     fetchControllers,
     handleNamespaceChange,
     handleClearCache,
-  } = useK8sApi();
+  } = useK8sApi({ forNamespaceDashboard: false });
 
   // Состояние для режима фокуса (выделение одного контроллера)
   const [focusedController, setFocusedController] = useState(null);
@@ -103,12 +103,10 @@ export default function Dashboard() {
     return focusedController === controller.name ? '' : 'opacity-40 hover:opacity-70 transition-opacity';
   };
 
-  // Функция getControllerTypeText удалена, так как больше не используется
-
   return (
     <div className="p-2 w-full overflow-x-hidden">
       <div className="mb-3">
-        <h1 className="text-xl font-bold text-gray-800 dark:text-white mb-1">Controllers Status</h1>
+        <h1 className="text-xl font-bold text-gray-800 dark:text-white mb-1">Project Status</h1>
         <p className="text-sm text-gray-600 dark:text-gray-400">
           Monitor your controllers across namespaces and clusters in real-time.
         </p>
