@@ -12,11 +12,12 @@ from dashboard_light.state_manager import update_resource_state
 import dashboard_light.k8s.deployments as deployments
 import dashboard_light.k8s.pods as pods
 import dashboard_light.k8s.namespaces as namespaces
+import dashboard_light.k8s.statefulsets as statefulsets
 
 logger = logging.getLogger(__name__)
 
 # Типы для аннотаций
-ResourceType = str  # 'deployments', 'pods', 'namespaces'
+ResourceType = str  # 'deployments', 'pods', 'namespaces', 'statefulsets'
 WatchTask = asyncio.Task  # Задача асинхронного наблюдения
 
 # Словарь активных задач наблюдения по типам ресурсов
@@ -43,6 +44,11 @@ _resource_functions = {
         'list_func': lambda api: api.list_namespace,
         'api_type': 'core_v1_api',
         'convert_func': None
+    },
+    'statefulsets': {
+        'list_func': lambda api: api.list_stateful_set_for_all_namespaces,
+        'api_type': 'apps_v1_api',
+        'convert_func': statefulsets.get_statefulset_status
     }
 }
 
@@ -85,8 +91,8 @@ def _convert_to_dict(resource_type: ResourceType, resource: Any) -> Dict[str, An
     }
 
     # Дополнительные данные в зависимости от типа ресурса
-    if resource_type == 'deployments':
-        # Переиспользуем существующую логику из deployments.py
+    if resource_type == 'deployments' or resource_type == 'statefulsets':
+        # Переиспользуем существующую логику из deployments.py/statefulsets.py
         spec = resource.spec
         status = resource.status
 
@@ -97,14 +103,21 @@ def _convert_to_dict(resource_type: ResourceType, resource: Any) -> Dict[str, An
 
         main_container = containers[0] if containers else None
 
-        # Формирование данных о деплойменте
+        # Формирование данных о деплойменте/statefulset
+        replicas_data = {
+            "desired": spec.replicas,
+            "ready": status.ready_replicas if status.ready_replicas else 0,
+            "updated": status.updated_replicas if status.updated_replicas else 0,
+        }
+        
+        # Для deployments добавляем available_replicas, для statefulsets используем ready как available
+        if resource_type == 'deployments':
+            replicas_data["available"] = status.available_replicas if status.available_replicas else 0
+        else:  # statefulsets
+            replicas_data["available"] = status.ready_replicas if status.ready_replicas else 0
+            
         result.update({
-            "replicas": {
-                "desired": spec.replicas,
-                "ready": status.ready_replicas if status.ready_replicas else 0,
-                "available": status.available_replicas if status.available_replicas else 0,
-                "updated": status.updated_replicas if status.updated_replicas else 0,
-            }
+            "replicas": replicas_data
         })
 
         # Добавление информации о главном контейнере, если он есть
@@ -134,7 +147,10 @@ def _convert_to_dict(resource_type: ResourceType, resource: Any) -> Dict[str, An
             result["owner_references"] = owner_refs
 
         # Добавление статуса
-        result["status"] = deployments.get_deployment_status(result)
+        if resource_type == 'deployments':
+            result["status"] = deployments.get_deployment_status(result)
+        else:  # statefulsets
+            result["status"] = statefulsets.get_statefulset_status(result)
 
     elif resource_type == 'pods':
         # Переиспользуем существующую логику из pods.py
@@ -217,20 +233,107 @@ async def _watch_resource(
             # Запуск наблюдения
             logger.info(f"Установка соединения Watch API для {resource_type}")
 
-            # Используем асинхронную обертку для синхронного API watch
-            for event in w.stream(list_func):
-                # Получение типа события и ресурса
-                event_type = event['type']  # ADDED, MODIFIED, DELETED
-                resource = event['object']
+            # Создаем очередь для передачи событий из потока в цикл событий
+            import queue
+            event_queue = queue.Queue()
+            
+            # Получаем текущий цикл событий для дальнейшего использования
+            main_loop = asyncio.get_running_loop()
+            
+            # Флаг для контроля работы потока
+            thread_running = True
+            
+            # Функция для запуска в отдельном потоке
+            def watch_resource_thread():
+                """Функция для запуска в отдельном потоке - наблюдение за ресурсами K8s"""
+                try:
+                    logger.info(f"Запущен поток наблюдения за {resource_type}")
+                    for event in w.stream(list_func):
+                        # Проверяем, нужно ли продолжать работу
+                        if not thread_running:
+                            logger.info(f"Получен сигнал остановки потока наблюдения за {resource_type}")
+                            break
+                            
+                        # Помещаем событие в очередь (обычную, не асинхронную)
+                        event_queue.put(event)
+                        
+                        # Планируем обработку очереди в основном цикле
+                        main_loop.call_soon_threadsafe(process_queue_event.set)
+                except Exception as e:
+                    logger.error(f"Ошибка в потоке наблюдения за {resource_type}: {e}")
+                    # Сигнализируем об ошибке через очередь
+                    try:
+                        event_queue.put(None)  # None означает, что поток завершился
+                        # Планируем обработку в основном цикле
+                        main_loop.call_soon_threadsafe(process_queue_event.set)
+                    except Exception as e2:
+                        logger.error(f"Не удалось отправить сигнал о завершении потока: {e2}")
+                finally:
+                    logger.info(f"Поток наблюдения за {resource_type} завершен")
+            
+            # Создаем событие для синхронизации обработки очереди
+            process_queue_event = asyncio.Event()
+            
+            # Запускаем наблюдение в отдельном потоке
+            import threading
+            watch_thread = threading.Thread(
+                target=watch_resource_thread, 
+                name=f"watch_{resource_type}",
+                daemon=True  # Поток будет завершен при завершении основного потока
+            )
+            watch_thread.start()
+            
+            # Обработка событий из очереди в цикле событий asyncio
+            try:
+                while True:
+                    # Ждем сигнала о новых данных или ошибке
+                    await process_queue_event.wait()
+                    process_queue_event.clear()
+                    
+                    # Обрабатываем все события из очереди
+                    while not event_queue.empty():
+                        try:
+                            # Получаем событие из обычной очереди (не асинхронной)
+                            event = event_queue.get_nowait()
+                            
+                            # Если получили None, значит поток завершился
+                            if event is None:
+                                logger.warning(f"Поток наблюдения за {resource_type} завершился, пересоздаем")
+                                # Сигнализируем потоку о необходимости остановки
+                                thread_running = False
+                                break
+                            
+                            # Получение типа события и ресурса
+                            event_type = event['type']  # ADDED, MODIFIED, DELETED
+                            resource = event['object']
 
-                # Преобразование ресурса в словарь
-                resource_dict = _convert_to_dict(resource_type, resource)
+                            # Преобразование ресурса в словарь
+                            resource_dict = _convert_to_dict(resource_type, resource)
 
-                # Обновление состояния через менеджер состояния
-                await update_resource_state(event_type, resource_type, resource_dict)
+                            # Обновление состояния через менеджер состояния
+                            await update_resource_state(event_type, resource_type, resource_dict)
 
-                # Даем шанс другим асинхронным задачам выполниться
-                await asyncio.sleep(0)
+                            # Отмечаем, что событие обработано
+                            event_queue.task_done()
+                        except queue.Empty:
+                            # Очередь пуста, выходим из внутреннего цикла
+                            break
+                        except Exception as e:
+                            logger.error(f"Ошибка при обработке события из очереди: {e}")
+                    
+                    # Даем шанс другим асинхронным задачам выполниться
+                    await asyncio.sleep(0.01)
+                    
+                    # Если поток завершился, выходим из основного цикла
+                    if not thread_running:
+                        break
+                    
+            except asyncio.CancelledError:
+                logger.info(f"Задача наблюдения за {resource_type} отменена")
+                # Сигнализируем потоку о необходимости остановки
+                thread_running = False
+                # Пропускаем исключение дальше, чтобы задача могла корректно завершиться
+                raise
 
             # Если мы здесь, значит соединение закрылось без исключения
             logger.warning(f"Соединение Watch API для {resource_type} закрылось, переподключение...")
@@ -254,7 +357,7 @@ async def _watch_resource(
 
 async def start_watching(
     k8s_client: Dict[str, Any],
-    resource_types: List[ResourceType] = ['deployments', 'pods', 'namespaces']
+    resource_types: List[ResourceType] = ['deployments', 'pods', 'namespaces', 'statefulsets']
 ) -> Dict[ResourceType, WatchTask]:
     """Запуск наблюдения за ресурсами указанных типов.
 
@@ -288,18 +391,29 @@ async def stop_watching() -> None:
     """Остановка всех задач наблюдения."""
     global _watch_tasks
 
+    # Создаем список для хранения отменяемых задач
+    cancel_tasks = []
+
     for resource_type, task in _watch_tasks.items():
         if not task.done():
+            # Отменяем задачу
             task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                logger.info(f"Задача наблюдения за {resource_type} отменена")
-            except Exception as e:
-                logger.error(f"Ошибка при остановке наблюдения за {resource_type}: {e}")
-
+            # Добавляем в список для ожидания
+            cancel_tasks.append(task)
+            logger.info(f"Отправлен запрос на отмену задачи наблюдения за {resource_type}")
+    
+    # Ждем завершения всех задач с защитой от ошибок
+    if cancel_tasks:
+        logger.info(f"Ожидание завершения {len(cancel_tasks)} задач наблюдения...")
+        try:
+            # Ждем завершения задач с таймаутом и игнорированием исключений
+            await asyncio.wait(cancel_tasks, timeout=5.0, return_when=asyncio.ALL_COMPLETED)
+        except Exception as e:
+            logger.error(f"Ошибка при ожидании завершения задач: {e}")
+    
+    # Очищаем словарь задач
     _watch_tasks.clear()
-    logger.info("Все задачи наблюдения остановлены")
+    logger.info("Все задачи наблюдения остановлены и словарь очищен")
 
 def is_watching(resource_type: ResourceType) -> bool:
     """Проверка, ведется ли наблюдение за указанным типом ресурса.

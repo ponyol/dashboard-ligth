@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 async def test_websocket():
     """Тестирование WebSocket соединения."""
-    uri = "ws://localhost:3000/ws"
+    uri = "ws://localhost:8765/"
     logger.info(f"Подключение к {uri}...")
 
     try:

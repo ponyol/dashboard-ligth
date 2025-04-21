@@ -1,67 +1,84 @@
 // src/components/NamespaceDashboard.jsx
 import { useEffect, useCallback, useState } from 'react';
 import useK8sApi from '../hooks/useK8sApi';
-import useInterval from '../hooks/useInterval';
+import useWebSocket from '../hooks/useWebSocket';
 import Filters from './Filters';
 import NamespaceCard from './NamespaceCard';
 import Loading from './Loading';
 
 /**
- * Компонент дашборда статуса неймспейсов
+ * Компонент дашборда статуса неймспейсов с поддержкой WebSocket
  */
 export default function NamespaceDashboard() {
   const {
-    namespaces,
-    controllers,
-    isLoading,
-    error,
-    fetchNamespaces,
-    fetchControllers,
+    handleClearCache,
   } = useK8sApi({ forNamespaceDashboard: true });
 
-  // Удалили состояние для режима фокуса, так как карточки больше не кликабельны
+  // Состояние для индикации загрузки и ошибок
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   
-  // Интервал обновления данных в миллисекундах (15 секунд)
-  const refreshInterval = 15000;
+  // Состояние для отслеживания компактного режима сортировки
+  const [optimizedView, setOptimizedView] = useState(false);
 
-  // Первоначальная загрузка данных
-  useEffect(() => {
-    const loadData = async () => {
-      await fetchNamespaces();
-      await fetchControllers();
-    };
-    
-    loadData();
-  }, [fetchNamespaces, fetchControllers]);
+  // Используем новый хук для работы с WebSocket
+  const {
+    isConnected,
+    isConnecting,
+    lastError,
+    resources,
+    connect,
+    subscribe,
+  } = useWebSocket({
+    onConnect: () => {
+      console.log('WebSocket connected, subscribing to resources...');
+      setError(null);
+      // Подписываемся на необходимые ресурсы при подключении
+      subscribe('namespaces');
+      subscribe('deployments');
+      subscribe('statefulsets');
+      setIsLoading(false);
+    },
+    onDisconnect: () => {
+      console.log('WebSocket disconnected');
+      setIsLoading(true);
+    },
+    onError: (err) => {
+      console.error('WebSocket error:', err);
+      setError('Error connecting to WebSocket: ' + (err.message || 'Unknown error'));
+      setIsLoading(false);
+    }
+  });
 
-  // Периодическое обновление данных
-  useInterval(() => {
-    fetchNamespaces();
-    fetchControllers();
-  }, refreshInterval);
-
-  // Обработчик обновления данных
+  // Обработчик обновления данных (переподключение WebSocket)
   const handleRefresh = useCallback(() => {
-    fetchNamespaces();
-    fetchControllers();
-  }, [fetchNamespaces, fetchControllers]);
-
-  // Удалили обработчик фокуса на неймспейсе, так как карточки больше не кликабельны
+    setIsLoading(true);
+    // Переподключаемся к WebSocket
+    if (!isConnected) {
+      connect();
+    } else {
+      // Переподписываемся на все ресурсы
+      subscribe('namespaces');
+      subscribe('deployments');
+      subscribe('statefulsets');
+      setIsLoading(false);
+    }
+  }, [isConnected, connect, subscribe]);
 
   // Расчет количества деплойментов и подов для каждого неймспейса
   const getNamespaceStats = useCallback(() => {
-    if (!namespaces || namespaces.length === 0) {
+    if (!resources.namespaces || resources.namespaces.length === 0) {
       console.log("No namespaces available for stats calculation");
       return [];
     }
     
-    console.log(`Calculating stats for ${namespaces.length} namespaces`);
-    console.log(`Have ${controllers?.length || 0} controllers available for stats calculation`);
+    console.log(`Calculating stats for ${resources.namespaces.length} namespaces`);
+    console.log(`Have ${resources.controllers?.length || 0} controllers available for stats calculation`);
     
     const stats = {};
     
     // Инициализация статистики для всех неймспейсов
-    namespaces.forEach(ns => {
+    resources.namespaces.forEach(ns => {
       stats[ns.name] = { 
         namespace: ns,
         deploymentCount: 0, 
@@ -71,12 +88,12 @@ export default function NamespaceDashboard() {
     });
     
     // Проверяем, что controllers определен
-    if (controllers && controllers.length > 0) {
+    if (resources.controllers && resources.controllers.length > 0) {
       // Логируем примеры контроллеров для проверки структуры данных
-      console.log("Sample controller data:", controllers[0]);
+      console.log("Sample controller data:", resources.controllers[0]);
       
       // Сначала соберем данные по контроллерам для каждого неймспейса
-      controllers.forEach(controller => {
+      resources.controllers.forEach(controller => {
         if (controller && controller.namespace && stats[controller.namespace]) {
           stats[controller.namespace].deploymentCount += 1;
           stats[controller.namespace].controllers.push(controller);
@@ -88,7 +105,6 @@ export default function NamespaceDashboard() {
       // Теперь считаем поды для каждого неймспейса
       Object.keys(stats).forEach(nsName => {
         const nsStats = stats[nsName];
-        console.log(`Processing namespace ${nsName} with ${nsStats.controllers.length} controllers`);
         
         // Считаем поды в каждом контроллере
         nsStats.controllers.forEach(controller => {
@@ -96,38 +112,60 @@ export default function NamespaceDashboard() {
             // Используем значение ready реплик как количество работающих подов
             const readyReplicas = controller.replicas.ready || 0;
             nsStats.podCount += readyReplicas;
-            console.log(`  - Controller ${controller.name}: added ${readyReplicas} pods to count`);
             
             // Также можно проверить поды напрямую, если они доступны
             if (controller.pods && Array.isArray(controller.pods)) {
               // Логирование для отладки
               console.log(`  - Controller ${controller.name} in ${controller.namespace} has ${controller.pods.length} pods directly`);
             }
-          } else {
-            console.log(`  - Controller ${controller.name} has no replicas information`);
           }
         });
         
         // Убедимся, что подсчет корректный (не отрицательный)
         nsStats.podCount = Math.max(0, nsStats.podCount);
-        console.log(`Final counts for ${nsName}: ${nsStats.deploymentCount} deployments, ${nsStats.podCount} pods`);
       });
     } else {
       console.warn("No controllers available to calculate namespace stats");
     }
     
-    console.log("Final namespace stats:", stats);
+    // Определяем статус каждого неймспейса для сортировки
+    Object.values(stats).forEach(ns => {
+      if (ns.deploymentCount === 0) {
+        ns.status = 'scaled_zero';
+      } else if (ns.podCount <= 1) {
+        ns.status = 'scaled_zero';
+      } else if (ns.podCount >= ns.deploymentCount) {
+        ns.status = 'healthy';
+      } else {
+        ns.status = 'progressing';
+      }
+    });
     
     return Object.values(stats);
-  }, [namespaces, controllers]);
+  }, [resources.namespaces, resources.controllers]);
+
+  // Сортировка и организация неймспейсов
+  const sortNamespaces = useCallback((stats) => {
+    if (!stats || stats.length === 0) return [];
+    
+    // Сначала сортируем по статусу, затем по алфавиту
+    return [...stats].sort((a, b) => {
+      // Сортировка по статусу: healthy -> progressing -> scaled_zero
+      const statusOrder = { 'healthy': 1, 'progressing': 2, 'scaled_zero': 3 };
+      if (statusOrder[a.status] !== statusOrder[b.status]) {
+        return statusOrder[a.status] - statusOrder[b.status];
+      }
+      
+      // Внутри одного статуса сортируем по алфавиту
+      return a.namespace.name.localeCompare(b.namespace.name);
+    });
+  }, []);
 
   // Расчет статистики по неймспейсам
-  const namespaceStats = getNamespaceStats();
-
-  // Удалили функцию для определения CSS класса карточки неймспейса, так как режим фокуса больше не используется
+  const namespaceStats = sortNamespaces(getNamespaceStats());
 
   // Если идет загрузка и еще нет данных, показываем индикатор загрузки
-  if (isLoading && namespaces.length === 0) {
+  if ((isLoading || isConnecting) && namespaceStats.length === 0) {
     return (
       <div className="p-2 w-full overflow-x-hidden">
         <Loading text="Loading namespace data..." />
@@ -136,12 +174,13 @@ export default function NamespaceDashboard() {
   }
 
   // Если есть ошибка и нет данных, показываем сообщение об ошибке
-  if (error && namespaces.length === 0) {
+  if ((error || lastError) && namespaceStats.length === 0) {
+    const errorMessage = error || lastError;
     return (
       <div className="p-2 w-full overflow-x-hidden">
         <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg text-red-700 dark:text-red-400">
           <h3 className="text-lg font-medium mb-2">Error</h3>
-          <p>{error}</p>
+          <p>{errorMessage}</p>
         </div>
       </div>
     );
@@ -156,46 +195,149 @@ export default function NamespaceDashboard() {
         </p>
       </div>
 
-      {/* Кнопка обновления данных */}
-      <div className="mb-4 flex justify-end">
-        <button
-          onClick={handleRefresh}
-          className="flex items-center px-3 py-1.5 bg-blue-500 dark:bg-blue-600 text-white dark:text-white rounded hover:bg-blue-600 dark:hover:bg-blue-700 transition-colors"
-          disabled={isLoading}
-        >
-          <svg
-            className={`w-4 h-4 mr-1.5 ${isLoading ? 'animate-spin' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            ></path>
-          </svg>
-          {isLoading ? 'Refreshing...' : 'Refresh'}
-        </button>
+      {/* Панель управления с индикатором состояния WebSocket и переключателем оптимизации */}
+      <div className="mb-4 flex flex-col sm:flex-row justify-between gap-2">
+        {/* Индикатор состояния WebSocket */}
+        <div className={`text-sm rounded-lg p-2 flex-grow ${isConnected ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' : 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400'}`}>
+          <div className="flex items-center">
+            <span className={`inline-block w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+            <span>
+              {isConnected 
+                ? 'WebSocket connected - receiving real-time updates' 
+                : (isConnecting ? 'Connecting to WebSocket...' : 'WebSocket disconnected - data may be stale')}
+            </span>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {/* Переключатель компактного режима */}
+          <div className="flex items-center justify-end gap-2 bg-gray-50 dark:bg-gray-800 p-2 rounded-lg">
+            <label htmlFor="optimized-view" className="flex items-center cursor-pointer">
+              <span className="text-sm text-gray-700 dark:text-gray-300 mr-2">Оптимизированный вид</span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  id="optimized-view"
+                  className="sr-only"
+                  checked={optimizedView}
+                  onChange={() => setOptimizedView(!optimizedView)}
+                />
+                <div className={`block w-10 h-6 rounded-full transition-colors ${optimizedView ? 'bg-healthy' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${optimizedView ? 'transform translate-x-4' : ''}`}></div>
+              </div>
+            </label>
+          </div>
+          
+          {/* Кнопка переподключения - отображается только когда соединение разорвано */}
+          {!isConnected && (
+            <button
+              onClick={handleRefresh}
+              className="flex items-center px-3 py-1.5 bg-yellow-500 dark:bg-yellow-600 text-white dark:text-white rounded hover:bg-yellow-600 dark:hover:bg-yellow-700 transition-colors"
+              disabled={isConnecting}
+            >
+              <svg
+                className={`w-4 h-4 mr-1.5 ${isConnecting ? 'animate-spin' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                ></path>
+              </svg>
+              {isConnecting ? 'Connecting...' : 'Reconnect'}
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Сетка неймспейсов */}
       {namespaceStats.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
-          {namespaceStats.map((stats) => (
-            <div
-              key={stats.namespace.name}
-            >
-              <NamespaceCard
-                namespace={stats.namespace}
-                deploymentCount={stats.deploymentCount}
-                podCount={stats.podCount}
-              />
+        <>
+          {/* Разделитель для здоровых неймспейсов в компактном режиме */}
+          {namespaceStats.some(ns => ns.status === 'healthy') && (
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-healthy mb-2 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Healthy Namespaces
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
+                {namespaceStats
+                  .filter(stats => stats.status === 'healthy')
+                  .map((stats) => (
+                    <div key={stats.namespace.name}>
+                      <NamespaceCard
+                        namespace={stats.namespace}
+                        deploymentCount={stats.deploymentCount}
+                        podCount={stats.podCount}
+                        compact={optimizedView}
+                      />
+                    </div>
+                  ))
+                }
+              </div>
             </div>
-          ))}
-        </div>
+          )}
+
+          {/* Разделитель для прогрессирующих неймспейсов */}
+          {namespaceStats.some(ns => ns.status === 'progressing') && (
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-progressing mb-2 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Progressing Namespaces
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
+                {namespaceStats
+                  .filter(stats => stats.status === 'progressing')
+                  .map((stats) => (
+                    <div key={stats.namespace.name}>
+                      <NamespaceCard
+                        namespace={stats.namespace}
+                        deploymentCount={stats.deploymentCount}
+                        podCount={stats.podCount}
+                        compact={false} // Всегда показываем полный вид
+                      />
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          )}
+
+          {/* Разделитель для неактивных неймспейсов */}
+          {namespaceStats.some(ns => ns.status === 'scaled_zero') && (
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-500 dark:text-gray-400 mb-2 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                Inactive Namespaces
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
+                {namespaceStats
+                  .filter(stats => stats.status === 'scaled_zero')
+                  .map((stats) => (
+                    <div key={stats.namespace.name}>
+                      <NamespaceCard
+                        namespace={stats.namespace}
+                        deploymentCount={stats.deploymentCount}
+                        podCount={stats.podCount}
+                        compact={false} // Всегда показываем полный вид
+                      />
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm text-center">
           <svg
@@ -219,34 +361,51 @@ export default function NamespaceDashboard() {
         </div>
       )}
 
-      {/* Информация об обновлении и кнопки управления */}
+      {/* Информация о подключении и кнопки управления */}
       <div className="mt-3 flex flex-col sm:flex-row justify-between items-center text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-sm">
         <div className="mb-2 sm:mb-0">
-          <span>Auto-refresh every {refreshInterval / 1000} seconds</span>
+          <span>WebSocket real-time updates</span>
           <span className="mx-2">•</span>
           <span>Last update: {new Date().toLocaleTimeString()}</span>
         </div>
-        <div>
+        <div className="flex items-center">
           <button
-            onClick={handleRefresh}
-            className="inline-flex items-center px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+            onClick={handleClearCache}
+            className="inline-flex items-center px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors mr-2"
           >
             <svg
-              className={`w-3 h-3 mr-1 ${isLoading ? 'animate-spin' : ''}`}
+              className="w-3 h-3 mr-1"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
               xmlns="http://www.w3.org/2000/svg"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              ></path>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
-            Refresh now
+            Clear cache
           </button>
+          {!isConnected && (
+            <button
+              onClick={handleRefresh}
+              className="inline-flex items-center px-2 py-1 bg-yellow-100 dark:bg-yellow-900 text-yellow-700 dark:text-yellow-300 rounded hover:bg-yellow-200 dark:hover:bg-yellow-800 transition-colors"
+            >
+              <svg
+                className={`w-3 h-3 mr-1 ${isConnecting ? 'animate-spin' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                ></path>
+              </svg>
+              Reconnect
+            </button>
+          )}
         </div>
       </div>
     </div>

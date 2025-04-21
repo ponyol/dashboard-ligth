@@ -24,9 +24,17 @@ export default defineConfig(({ command }) => {
   if (command === 'serve') {
     config.server = {
       proxy: {
+        // HTTP API proxy
         '/api': {
           target: 'http://localhost:3000',
           changeOrigin: true,
+        },
+        // WebSocket proxy
+        '/ws': {
+          target: 'ws://localhost:8765',
+          ws: true,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/ws/, ''),
         },
       },
     };

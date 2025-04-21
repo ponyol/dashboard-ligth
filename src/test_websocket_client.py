@@ -192,7 +192,7 @@ async def shutdown(websocket) -> None:
 def main():
     """Основная функция приложения."""
     parser = argparse.ArgumentParser(description="WebSocket клиент для тестирования API Streaming")
-    parser.add_argument("--url", default="ws://localhost:3000/api/k8s/ws",
+    parser.add_argument("--url", default="ws://localhost:8765/",
                      help="WebSocket URL (по умолчанию: ws://localhost:3000/api/k8s/ws)")
     parser.add_argument("--deployments", action="store_true", help="Подписаться на deployments")
     parser.add_argument("--pods", action="store_true", help="Подписаться на pods")
