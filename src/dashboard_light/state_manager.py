@@ -27,16 +27,10 @@ async def update_resource_state(
     resource_type: ResourceType,
     resource_data: ResourceData
 ) -> None:
-    """Обновление состояния ресурса и оповещение подписчиков.
-
-    Args:
-        event_type: Тип события ('ADDED', 'MODIFIED', 'DELETED')
-        resource_type: Тип ресурса ('deployments', 'pods', 'namespaces', etc.)
-        resource_data: Данные о ресурсе
-    """
+    """Обновление состояния ресурса и оповещение подписчиков."""
     start_time = time.time()
     try:
-        # Проверка валидности данных
+        # Базовая проверка валидности
         if not resource_data or not isinstance(resource_data, dict):
             logger.warning(f"STATE_MANAGER: Получены невалидные данные ресурса: {resource_data}")
             return
@@ -54,15 +48,7 @@ async def update_resource_state(
         # Для статистики - до изменений
         existing = resource_key in _resource_state
 
-        # Отладочное сообщение для мониторинга входящих данных
-        logger.info(f"STATE_MANAGER: Получено событие {event_type} для {resource_type}/{namespace}/{name} (существует: {existing})")
-
-        # Проверяем, что тип ресурса поддерживается
-        if resource_type not in ["namespaces", "deployments", "pods", "statefulsets"]:
-            logger.warning(f"STATE_MANAGER: Неподдерживаемый тип ресурса: {resource_type}")
-            return
-
-        # Используем короткую блокировку только для обновления словаря
+        # Минимальная блокировка только для операции с состоянием
         try:
             async with _lock:
                 # Обновление состояния в зависимости от типа события
@@ -72,85 +58,199 @@ async def update_resource_state(
                 else:  # 'ADDED' или 'MODIFIED' или 'INITIAL'
                     _resource_state[resource_key] = resource_data
                     logger.debug(f"STATE_MANAGER: {'Добавлен' if not existing else 'Обновлен'} ресурс {resource_type}/{namespace}/{name}")
-
-                # Отладка: показать количество хранимых ресурсов
-                total_resources = len(_resource_state)
-                resources_by_type = {}
-                for (rt, _, _), _ in _resource_state.items():
-                    resources_by_type[rt] = resources_by_type.get(rt, 0) + 1
-
-                logger.info(f"STATE_MANAGER: Текущее состояние - всего {total_resources} ресурсов: {resources_by_type}")
-
         except Exception as e:
             logger.error(f"STATE_MANAGER: Ошибка при обновлении состояния ресурса: {e}")
-            logger.exception("STATE_MANAGER: Подробности ошибки:")
             return
 
-        # Создаем задачу для оповещения подписчиков без ожидания ее завершения
-        # Это предотвращает блокировку основного цикла
+        # Запускаем отдельную задачу для оповещения, чтобы не блокировать обновление
         asyncio.create_task(notify_subscribers(event_type, resource_type, resource_data))
 
-        # Добавляем отметку времени для отслеживания задержек
+        # Подсчет времени обработки и логирование, если слишком долго
         processing_time = time.time() - start_time
-        if processing_time > 0.5:  # Если обработка заняла больше 0.5 секунды
+        if processing_time > 0.1:  # Если обработка заняла больше 0.1 секунды
             logger.warning(f"STATE_MANAGER: Длительная обработка события {event_type} для {resource_type}/{namespace}/{name}: {processing_time:.3f}с")
 
     except Exception as e:
         logger.error(f"STATE_MANAGER: Критическая ошибка при обработке события {event_type} для {resource_type}: {e}")
         logger.exception("STATE_MANAGER: Подробности критической ошибки:")
 
+# async def update_resource_state(
+#     event_type: EventType,
+#     resource_type: ResourceType,
+#     resource_data: ResourceData
+# ) -> None:
+#     """Обновление состояния ресурса и оповещение подписчиков.
+
+#     Args:
+#         event_type: Тип события ('ADDED', 'MODIFIED', 'DELETED')
+#         resource_type: Тип ресурса ('deployments', 'pods', 'namespaces', etc.)
+#         resource_data: Данные о ресурсе
+#     """
+#     start_time = time.time()
+#     try:
+#         # Проверка валидности данных
+#         if not resource_data or not isinstance(resource_data, dict):
+#             logger.warning(f"STATE_MANAGER: Получены невалидные данные ресурса: {resource_data}")
+#             return
+
+#         # Создание ключа ресурса
+#         namespace = resource_data.get("namespace", "")
+#         name = resource_data.get("name", "")
+
+#         if not name:
+#             logger.warning(f"STATE_MANAGER: Получены данные ресурса без имени: {resource_data}")
+#             return
+
+#         resource_key = (resource_type, namespace, name)
+
+#         # Для статистики - до изменений
+#         existing = resource_key in _resource_state
+
+#         # Отладочное сообщение для мониторинга входящих данных
+#         logger.info(f"STATE_MANAGER: Получено событие {event_type} для {resource_type}/{namespace}/{name} (существует: {existing})")
+
+#         # Проверяем, что тип ресурса поддерживается
+#         if resource_type not in ["namespaces", "deployments", "pods", "statefulsets"]:
+#             logger.warning(f"STATE_MANAGER: Неподдерживаемый тип ресурса: {resource_type}")
+#             return
+
+#         # Используем короткую блокировку только для обновления словаря
+#         try:
+#             async with _lock:
+#                 # Обновление состояния в зависимости от типа события
+#                 if event_type == "DELETED":
+#                     _resource_state.pop(resource_key, None)
+#                     logger.debug(f"STATE_MANAGER: Удален ресурс {resource_type}/{namespace}/{name}")
+#                 else:  # 'ADDED' или 'MODIFIED' или 'INITIAL'
+#                     _resource_state[resource_key] = resource_data
+#                     logger.debug(f"STATE_MANAGER: {'Добавлен' if not existing else 'Обновлен'} ресурс {resource_type}/{namespace}/{name}")
+
+#                 # Отладка: показать количество хранимых ресурсов
+#                 total_resources = len(_resource_state)
+#                 resources_by_type = {}
+#                 for (rt, _, _), _ in _resource_state.items():
+#                     resources_by_type[rt] = resources_by_type.get(rt, 0) + 1
+
+#                 logger.info(f"STATE_MANAGER: Текущее состояние - всего {total_resources} ресурсов: {resources_by_type}")
+
+#         except Exception as e:
+#             logger.error(f"STATE_MANAGER: Ошибка при обновлении состояния ресурса: {e}")
+#             logger.exception("STATE_MANAGER: Подробности ошибки:")
+#             return
+
+#         # Создаем задачу для оповещения подписчиков без ожидания ее завершения
+#         # Это предотвращает блокировку основного цикла
+#         asyncio.create_task(notify_subscribers(event_type, resource_type, resource_data))
+
+#         # Добавляем отметку времени для отслеживания задержек
+#         processing_time = time.time() - start_time
+#         if processing_time > 0.5:  # Если обработка заняла больше 0.5 секунды
+#             logger.warning(f"STATE_MANAGER: Длительная обработка события {event_type} для {resource_type}/{namespace}/{name}: {processing_time:.3f}с")
+
+#     except Exception as e:
+#         logger.error(f"STATE_MANAGER: Критическая ошибка при обработке события {event_type} для {resource_type}: {e}")
+#         logger.exception("STATE_MANAGER: Подробности критической ошибки:")
+
 async def notify_subscribers(
     event_type: EventType,
     resource_type: ResourceType,
     resource_data: ResourceData
 ) -> None:
-    """Оповещение всех подписчиков о событии ресурса.
-
-    Args:
-        event_type: Тип события ('ADDED', 'MODIFIED', 'DELETED')
-        resource_type: Тип ресурса ('deployments', 'pods', 'namespaces', etc.)
-        resource_data: Данные о ресурсе
-    """
-    if resource_type not in _subscribers:
-        logger.debug(f"STATE_MANAGER: Нет подписчиков для типа ресурса {resource_type}, событие не будет отправлено")
+    """Оповещение всех подписчиков о событии ресурса без блокирования."""
+    # Быстрая проверка без блокировки
+    if resource_type not in _subscribers or not _subscribers[resource_type]:
         return
 
+    # Получаем копию списка подписчиков - для безопасного итерирования
+    subscribers = set()
     try:
-        # Получаем копию списка подписчиков, чтобы не блокировать его при оповещении
-        subscribers = set()
         async with _lock:
             subscribers = set(_subscribers.get(resource_type, set()))
-
-        # Логируем количество подписчиков
-        # logger.info(f"STATE_MANAGER: Оповещение {len(subscribers)} подписчиков о событии {event_type} для ресурса {resource_type}/{resource_data.get('namespace', '')}/{resource_data.get('name', '')}")
-
-        # Отправляем оповещения асинхронно без блокировки
-        tasks = []
-        for callback in subscribers:
-            # Создаем отдельную задачу для каждого подписчика
-            task = asyncio.create_task(
-                safe_notify_subscriber(callback, event_type, resource_type, resource_data)
-            )
-            tasks.append(task)
-
-        # Ждем завершения всех задач с таймаутом
-        if tasks:
-            # Ждем с таймаутом, но не блокируем, если некоторые задачи зависнут
-            done, pending = await asyncio.wait(
-                tasks,
-                timeout=5.0,  # Таймаут 5 секунд
-                return_when=asyncio.ALL_COMPLETED
-            )
-
-            # Логируем результаты отправки
-            # logger.info(f"STATE_MANAGER: Отправлено {len(done)} успешных уведомлений, {len(pending)} не завершились в срок")
-
-            # Отменяем висящие задачи
-            for task in pending:
-                task.cancel()
-
     except Exception as e:
-        logger.error(f"Ошибка при оповещении подписчиков: {e}")
+        logger.error(f"STATE_MANAGER: Ошибка при получении списка подписчиков: {e}")
+        return
+
+    if not subscribers:
+        return
+
+    # Кол-во подписчиков для логирования
+    subscriber_count = len(subscribers)
+    if subscriber_count > 0:
+        logger.info(f"STATE_MANAGER: Оповещение {subscriber_count} подписчиков о событии {event_type} для ресурса {resource_type}/{resource_data.get('namespace', '')}/{resource_data.get('name', '')}")
+
+    # Быстрое оповещение каждого подписчика асинхронно
+    # Создаем задачи для параллельного оповещения всех подписчиков
+    notification_tasks = []
+    for callback in subscribers:
+        task = asyncio.create_task(
+            safe_notify_subscriber(callback, event_type, resource_type, resource_data)
+        )
+        notification_tasks.append(task)
+
+    # Ждем завершения задач с таймаутом (но не блокируемся)
+    if notification_tasks:
+        done, pending = await asyncio.wait(
+            notification_tasks,
+            timeout=0.5,  # Небольшой таймаут
+            return_when=asyncio.ALL_COMPLETED
+        )
+
+        # Отменяем незавершенные задачи
+        for task in pending:
+            task.cancel()
+
+# async def notify_subscribers(
+#     event_type: EventType,
+#     resource_type: ResourceType,
+#     resource_data: ResourceData
+# ) -> None:
+#     """Оповещение всех подписчиков о событии ресурса.
+
+#     Args:
+#         event_type: Тип события ('ADDED', 'MODIFIED', 'DELETED')
+#         resource_type: Тип ресурса ('deployments', 'pods', 'namespaces', etc.)
+#         resource_data: Данные о ресурсе
+#     """
+#     if resource_type not in _subscribers:
+#         logger.debug(f"STATE_MANAGER: Нет подписчиков для типа ресурса {resource_type}, событие не будет отправлено")
+#         return
+
+#     try:
+#         # Получаем копию списка подписчиков, чтобы не блокировать его при оповещении
+#         subscribers = set()
+#         async with _lock:
+#             subscribers = set(_subscribers.get(resource_type, set()))
+
+#         # Логируем количество подписчиков
+#         # logger.info(f"STATE_MANAGER: Оповещение {len(subscribers)} подписчиков о событии {event_type} для ресурса {resource_type}/{resource_data.get('namespace', '')}/{resource_data.get('name', '')}")
+
+#         # Отправляем оповещения асинхронно без блокировки
+#         tasks = []
+#         for callback in subscribers:
+#             # Создаем отдельную задачу для каждого подписчика
+#             task = asyncio.create_task(
+#                 safe_notify_subscriber(callback, event_type, resource_type, resource_data)
+#             )
+#             tasks.append(task)
+
+#         # Ждем завершения всех задач с таймаутом
+#         if tasks:
+#             # Ждем с таймаутом, но не блокируем, если некоторые задачи зависнут
+#             done, pending = await asyncio.wait(
+#                 tasks,
+#                 timeout=5.0,  # Таймаут 5 секунд
+#                 return_when=asyncio.ALL_COMPLETED
+#             )
+
+#             # Логируем результаты отправки
+#             # logger.info(f"STATE_MANAGER: Отправлено {len(done)} успешных уведомлений, {len(pending)} не завершились в срок")
+
+#             # Отменяем висящие задачи
+#             for task in pending:
+#                 task.cancel()
+
+#     except Exception as e:
+#         logger.error(f"Ошибка при оповещении подписчиков: {e}")
 
 async def safe_notify_subscriber(
     callback: Callback,

@@ -58,6 +58,34 @@ _resource_functions = {
 # Глобальная переменная для хранения паттернов неймспейсов
 _namespace_patterns: List[str] = []
 
+# Новые глобальные переменные для прямой доставки событий
+_direct_subscribers = {}  # Словарь подписчиков для прямой доставки
+
+# Новые функции для прямой доставки событий
+def add_direct_subscriber(callback):
+    """Добавляет подписчика для прямой доставки событий, минуя state_manager.
+
+    Args:
+        callback: Асинхронная функция для обработки событий
+
+    Returns:
+        str: ID подписчика для последующего удаления
+    """
+    subscriber_id = str(id(callback))
+    _direct_subscribers[subscriber_id] = callback
+    logger.info(f"K8S_WATCH: Добавлен прямой подписчик {subscriber_id}, всего: {len(_direct_subscribers)}")
+    return subscriber_id
+
+def remove_direct_subscriber(subscriber_id):
+    """Удаляет подписчика прямой доставки.
+
+    Args:
+        subscriber_id: ID подписчика
+    """
+    if subscriber_id in _direct_subscribers:
+        del _direct_subscribers[subscriber_id]
+        logger.info(f"K8S_WATCH: Удален прямой подписчик {subscriber_id}, осталось: {len(_direct_subscribers)}")
+
 def _get_api_instance(k8s_client: Dict[str, Any], resource_type: ResourceType) -> Any:
     """Получение экземпляра API для указанного типа ресурса.
 
@@ -405,9 +433,10 @@ class WatchManager:
                 if not self.resource_version:
                     self.resource_version = await self._get_latest_resource_version()
 
-                # Параметры для Watch API
+                # Параметры для Watch API - оптимизация таймаутов для более частых обновлений
                 params = {
-                    "timeout_seconds": 5  # Уменьшенный таймаут для более частой проверки статуса
+                    "timeout_seconds": 1,  # Сильно уменьшаем таймаут для более частого обновления
+                    "watch": True          # Явно указываем watch=True
                 }
 
                 # Добавляем resource_version, если она есть
@@ -436,8 +465,13 @@ class WatchManager:
                     # Добавляем преобразованный словарь в событие
                     event['dict'] = resource_dict
 
-                    # Добавляем событие в очередь
-                    await self.event_queue.put(event)
+                    # Добавляем событие в очередь с низким приоритетом
+                    try:
+                        # Используем put_nowait для неблокирующей постановки в очередь
+                        self.event_queue.put_nowait(event)
+                    except asyncio.QueueFull:
+                        # Если очередь переполнена - обработаем позже
+                        logger.warning(f"WatchManager: Очередь событий переполнена для {self.resource_type}, событие отброшено")
 
                     return True  # Продолжаем наблюдение
 
@@ -468,6 +502,80 @@ class WatchManager:
                 await asyncio.sleep(self.reconnect_delay)
             else:
                 break
+    # async def _watch_resources(self):
+    #     """Запуск наблюдения за ресурсами и добавление событий в очередь."""
+    #     while self.running and not self.stop_event.is_set():
+    #         try:
+    #             # Первоначальное получение всех ресурсов
+    #             await self._list_all_resources()
+
+    #             # Если не удалось получить resource_version, пытаемся получить её явно
+    #             if not self.resource_version:
+    #                 self.resource_version = await self._get_latest_resource_version()
+
+    #             # Параметры для Watch API
+    #             params = {
+    #                 "timeout_seconds": 5  # Уменьшенный таймаут для более частой проверки статуса
+    #             }
+
+    #             # Добавляем resource_version, если она есть
+    #             if self.resource_version:
+    #                 params["resource_version"] = self.resource_version
+
+    #             logger.info(f"WatchManager: Запуск Watch API наблюдения за {self.resource_type} с параметрами: {params}")
+
+    #             # Используем коллбэк на событие для обратной совместимости
+    #             async def handle_event(event):
+    #                 # Проверяем, что наблюдение всё ещё активно
+    #                 if not self.running or self.stop_event.is_set():
+    #                     return False  # Возвращаем False для остановки наблюдения
+
+    #                 # Обновляем время последнего события
+    #                 self.last_event_time = time.time()
+
+    #                 # Преобразуем объект в словарь
+    #                 obj = event.get('object')
+    #                 resource_dict = _convert_to_dict(self.resource_type, obj)
+
+    #                 # Проверка, не пропущен ли ресурс при преобразовании (например, из-за фильтрации)
+    #                 if not resource_dict:
+    #                     return True  # Продолжаем наблюдение
+
+    #                 # Добавляем преобразованный словарь в событие
+    #                 event['dict'] = resource_dict
+
+    #                 # Добавляем событие в очередь
+    #                 await self.event_queue.put(event)
+
+    #                 return True  # Продолжаем наблюдение
+
+    #             # Запускаем асинхронное наблюдение с использованием нашего обработчика
+    #             async for event in self._stream_watch_events(params):
+    #                 if not await handle_event(event):
+    #                     break
+
+    #             logger.info(f"WatchManager: Наблюдение за {self.resource_type} завершено нормально")
+
+    #         except ApiException as e:
+    #             if e.status == 410:  # Gone - требуется обновление resource_version
+    #                 logger.warning(f"WatchManager: Ошибка 410 при наблюдении за {self.resource_type} - ресурс устарел")
+    #                 # Сбрасываем resource_version и пробуем заново почти сразу
+    #                 self.resource_version = await self._get_latest_resource_version()
+    #                 self.reconnect_delay = 0.1  # Почти моментальное переподключение
+    #             else:
+    #                 logger.error(f"WatchManager: Ошибка API при наблюдении за {self.resource_type} (код {e.status}): {e}")
+    #                 self.reconnect_delay = min(self.reconnect_delay * RETRY_BACKOFF_FACTOR, RETRY_MAX_DELAY)
+    #         except Exception as e:
+    #             logger.error(f"WatchManager: Ошибка при наблюдении за {self.resource_type}: {e}")
+    #             logger.error(f"WatchManager: Трассировка: {traceback.format_exc()}")
+    #             self.reconnect_delay = min(self.reconnect_delay * RETRY_BACKOFF_FACTOR, RETRY_MAX_DELAY)
+
+    #         # Если наблюдение прервано, но менеджер всё ещё активен, переподключаемся
+    #         if self.running and not self.stop_event.is_set():
+    #             logger.info(f"WatchManager: Переподключение через {self.reconnect_delay} сек для {self.resource_type}")
+    #             await asyncio.sleep(self.reconnect_delay)
+    #         else:
+    #             break
 
     async def _stream_watch_events(self, params):
         """Генератор для создания асинхронного потока событий из Watch API.
@@ -510,20 +618,20 @@ class WatchManager:
             w.stop()
 
     async def _process_events(self):
-        """Обработка событий из очереди и их отправка в state_manager."""
+        """Обработка событий из очереди и их отправка в state_manager и прямым подписчикам."""
         while self.running and not self.stop_event.is_set():
             try:
-                # Обрабатываем пакетами до 10 событий за раз для ускорения
+                # Обрабатываем пакетами до 20 событий за раз для ускорения
                 batch_processed = 0
-                max_batch_size = 10
+                max_batch_size = 20
 
                 # Обработка пакета событий
                 while batch_processed < max_batch_size:
                     try:
-                        # Пробуем получить событие без длительного блокирования
+                        # Пробуем получить событие без блокирования
                         event = self.event_queue.get_nowait()
 
-                        # Обработка событий как раньше
+                        # Получаем информацию о событии
                         event_type = event.get('type', 'UNKNOWN')
 
                         # Если тип события неизвестен, игнорируем его
@@ -545,15 +653,23 @@ class WatchManager:
                             self.event_queue.task_done()
                             continue
 
+                        # Добавляем отметку времени для отслеживания задержки
+                        resource_dict["k8s_event_timestamp"] = time.time()
+
                         # Логируем информацию о событии
                         name = resource_dict.get('name', 'unknown')
                         namespace = resource_dict.get('namespace', '')
-                        logger.info(f"WatchManager: Обработка события {event_type} для {self.resource_type}/{namespace}/{name}")
+                        logger.debug(f"WatchManager: Обработка события {event_type} для {self.resource_type}/{namespace}/{name}")
 
-                        # Отправляем событие в state_manager
+                        # БЫСТРЫЙ ПУТЬ - прямая отправка подписчикам для минимальной задержки
+                        if _direct_subscribers:
+                            # Создаем отдельную задачу для неблокирующей отправки
+                            asyncio.create_task(self._deliver_to_direct_subscribers(
+                                event_type, self.resource_type, resource_dict))
+
+                        # Стандартный путь через state_manager (для совместимости)
                         try:
                             await update_resource_state(event_type, self.resource_type, resource_dict)
-                            logger.debug(f"WatchManager: Событие {event_type} для {self.resource_type}/{namespace}/{name} отправлено в state_manager")
                         except Exception as e:
                             logger.error(f"WatchManager: Ошибка при отправке события в state_manager: {e}")
 
@@ -567,7 +683,7 @@ class WatchManager:
 
                 # Если ничего не обработали за этот проход, подождем немного
                 if batch_processed == 0:
-                    await asyncio.sleep(0.1)  # Короткая пауза вместо длительного ожидания
+                    await asyncio.sleep(0.01)  # Очень короткая пауза для экономии CPU
 
             except asyncio.CancelledError:
                 # Корректное завершение при отмене
@@ -576,61 +692,90 @@ class WatchManager:
             except Exception as e:
                 logger.error(f"WatchManager: Ошибка при обработке события для {self.resource_type}: {e}")
                 logger.error(f"WatchManager: Трассировка: {traceback.format_exc()}")
-                # Короткая пауза после ошибки
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)  # Короткая пауза после ошибки
+
+    async def _deliver_to_direct_subscribers(self, event_type, resource_type, resource_data):
+        """Доставляет событие напрямую подписчикам, минуя state_manager.
+
+        Args:
+            event_type: Тип события ('ADDED', 'MODIFIED', 'DELETED')
+            resource_type: Тип ресурса
+            resource_data: Данные ресурса
+        """
+        # Копируем значения словаря, чтобы избежать проблем с параллельным изменением словаря
+        try:
+            subscribers = list(_direct_subscribers.values())
+            if not subscribers:
+                return
+
+            # Быстрая доставка подписчикам
+            for callback in subscribers:
+                try:
+                    await callback(event_type, resource_type, resource_data)
+                except Exception as e:
+                    logger.error(f"WatchManager: Ошибка при прямой доставке события: {e}")
+        except Exception as e:
+            logger.error(f"WatchManager: Ошибка в _deliver_to_direct_subscribers: {e}")
+
     # async def _process_events(self):
     #     """Обработка событий из очереди и их отправка в state_manager."""
     #     while self.running and not self.stop_event.is_set():
     #         try:
-    #             # Получаем следующее событие с таймаутом
-    #             # чтобы периодически проверять состояние менеджера
-    #             try:
-    #                 event = await asyncio.wait_for(self.event_queue.get(), timeout=5.0)
-    #             except asyncio.TimeoutError:
-    #                 # Проверка на "зависшее" наблюдение - если долго нет событий
-    #                 if self.last_event_time > 0:
-    #                     time_since_last = time.time() - self.last_event_time
-    #                     if time_since_last > 60:  # 1 минута без событий
-    #                         logger.warning(f"WatchManager: Нет событий для {self.resource_type} в течение {time_since_last:.1f} секунд")
-    #                         # Но не прерываем наблюдение, так как это может быть нормально
-    #                 continue
+    #             # Обрабатываем пакетами до 10 событий за раз для ускорения
+    #             batch_processed = 0
+    #             max_batch_size = 10
 
-    #             # Получаем информацию о событии
-    #             event_type = event.get('type', 'UNKNOWN')
+    #             # Обработка пакета событий
+    #             while batch_processed < max_batch_size:
+    #                 try:
+    #                     # Пробуем получить событие без длительного блокирования
+    #                     event = self.event_queue.get_nowait()
 
-    #             # Если тип события неизвестен, игнорируем его
-    #             if event_type not in ['ADDED', 'MODIFIED', 'DELETED']:
-    #                 logger.warning(f"WatchManager: Неизвестный тип события: {event_type}")
-    #                 self.event_queue.task_done()
-    #                 continue
+    #                     # Обработка событий как раньше
+    #                     event_type = event.get('type', 'UNKNOWN')
 
-    #             # Используем предварительно преобразованный словарь, если он есть
-    #             if 'dict' in event:
-    #                 resource_dict = event['dict']
-    #             else:
-    #                 # Если нет, преобразуем объект в словарь
-    #                 obj = event.get('object')
-    #                 resource_dict = _convert_to_dict(self.resource_type, obj)
+    #                     # Если тип события неизвестен, игнорируем его
+    #                     if event_type not in ['ADDED', 'MODIFIED', 'DELETED']:
+    #                         logger.warning(f"WatchManager: Неизвестный тип события: {event_type}")
+    #                         self.event_queue.task_done()
+    #                         continue
 
-    #             # Проверка, не пропущен ли ресурс при преобразовании (например, из-за фильтрации)
-    #             if not resource_dict:
-    #                 self.event_queue.task_done()
-    #                 continue
+    #                     # Используем предварительно преобразованный словарь, если он есть
+    #                     if 'dict' in event:
+    #                         resource_dict = event['dict']
+    #                     else:
+    #                         # Если нет, преобразуем объект в словарь
+    #                         obj = event.get('object')
+    #                         resource_dict = _convert_to_dict(self.resource_type, obj)
 
-    #             # Логируем информацию о событии
-    #             name = resource_dict.get('name', 'unknown')
-    #             namespace = resource_dict.get('namespace', '')
-    #             logger.info(f"WatchManager: Обработка события {event_type} для {self.resource_type}/{namespace}/{name}")
+    #                     # Проверка, не пропущен ли ресурс при преобразовании
+    #                     if not resource_dict:
+    #                         self.event_queue.task_done()
+    #                         continue
 
-    #             # Отправляем событие в state_manager
-    #             try:
-    #                 await update_resource_state(event_type, self.resource_type, resource_dict)
-    #                 logger.debug(f"WatchManager: Событие {event_type} для {self.resource_type}/{namespace}/{name} отправлено в state_manager")
-    #             except Exception as e:
-    #                 logger.error(f"WatchManager: Ошибка при отправке события в state_manager: {e}")
+    #                     # Логируем информацию о событии
+    #                     name = resource_dict.get('name', 'unknown')
+    #                     namespace = resource_dict.get('namespace', '')
+    #                     logger.info(f"WatchManager: Обработка события {event_type} для {self.resource_type}/{namespace}/{name}")
 
-    #             # Отмечаем задачу как выполненную
-    #             self.event_queue.task_done()
+    #                     # Отправляем событие в state_manager
+    #                     try:
+    #                         await update_resource_state(event_type, self.resource_type, resource_dict)
+    #                         logger.debug(f"WatchManager: Событие {event_type} для {self.resource_type}/{namespace}/{name} отправлено в state_manager")
+    #                     except Exception as e:
+    #                         logger.error(f"WatchManager: Ошибка при отправке события в state_manager: {e}")
+
+    #                     # Отмечаем задачу как выполненную
+    #                     self.event_queue.task_done()
+    #                     batch_processed += 1
+
+    #                 except asyncio.QueueEmpty:
+    #                     # Очередь пуста, выходим из внутреннего цикла
+    #                     break
+
+    #             # Если ничего не обработали за этот проход, подождем немного
+    #             if batch_processed == 0:
+    #                 await asyncio.sleep(0.1)  # Короткая пауза вместо длительного ожидания
 
     #         except asyncio.CancelledError:
     #             # Корректное завершение при отмене
@@ -639,6 +784,8 @@ class WatchManager:
     #         except Exception as e:
     #             logger.error(f"WatchManager: Ошибка при обработке события для {self.resource_type}: {e}")
     #             logger.error(f"WatchManager: Трассировка: {traceback.format_exc()}")
+    #             # Короткая пауза после ошибки
+    #             await asyncio.sleep(0.5)
 
 async def _watch_resource(
     k8s_client: Dict[str, Any],

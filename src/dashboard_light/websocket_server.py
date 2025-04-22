@@ -109,6 +109,9 @@ async def ensure_k8s_watchers_running(k8s_client):
 async def handle_websocket(websocket):
     """Обработка WebSocket соединения с использованием семафора для ограничения нагрузки."""
 
+    # Переменная для хранения ID прямого подписчика
+    direct_subscriber_id = None
+
     # Пытаемся захватить семафор без блокировки
     if not connection_semaphore.locked() and connection_semaphore._value <= 0:
         # Если семафор заблокирован, отклоняем соединение
@@ -130,6 +133,56 @@ async def handle_websocket(websocket):
 
     try:
         logger.info(f"Новое WebSocket соединение: {websocket.remote_address}")
+        # Создаем функцию для прямой обработки событий от Watch API
+        async def direct_event_handler(event_type, resource_type, resource_data):
+            """Обработчик для прямой доставки событий от watch.py."""
+            try:
+                # Проверяем, что соединение активно
+                if websocket not in active_connections:
+                    return
+
+                # Получаем namespace для проверки подписки
+                namespace = resource_data.get("namespace", "")
+                name = resource_data.get("name", "")
+
+                # Проверяем наличие фильтра по namespace для этого типа ресурсов
+                subscription_key = f"{resource_type}"
+                matching_namespace = True
+
+                # Если у нас есть подписка с фильтром по namespace, проверяем соответствие
+                ns_filter = subscriptions.get(subscription_key)
+                if ns_filter and ns_filter != namespace:
+                    # Пропускаем обработку для неподходящего namespace
+                    return
+
+                # Формируем сообщение для отправки (максимально простое)
+                message = {
+                    "type": "resource",
+                    "eventType": event_type,
+                    "resourceType": resource_type,
+                    "resource": resource_data
+                }
+
+                # Быстрая отправка без лишних проверок
+                try:
+                    # Используем send_nowait если доступен, иначе обычный send
+                    if hasattr(websocket, 'send_nowait'):
+                        await websocket.send_nowait(json.dumps(message))
+                    else:
+                        await websocket.send(json.dumps(message))
+                    stats["messages_sent"] += 1
+                except Exception as e:
+                    logger.error(f"Ошибка при отправке: {e}")
+                    if websocket in active_connections:
+                        active_connections.remove(websocket)
+
+            except Exception as e:
+                logger.error(f"Ошибка в direct_event_handler: {e}")
+
+        # Регистрируем прямую подписку на события, минуя state_manager
+        from dashboard_light.k8s.watch import add_direct_subscriber, remove_direct_subscriber
+        direct_subscriber_id = add_direct_subscriber(direct_event_handler)
+        logger.info(f"WEBSOCKET_SERVER: Создана прямая подписка {direct_subscriber_id} для клиента: {websocket.remote_address}")
 
         # Загрузка конфигурации с обработкой ошибок
         try:
@@ -258,12 +311,21 @@ async def handle_websocket(websocket):
                 # Обновляем счетчик полученных сообщений
                 stats["messages_received"] += 1
 
-                logger.debug(f"Получено сообщение: {message[:100]}")  # Логируем только первые 100 символов для больших сообщений
+                logger.debug(f"Получено сообщение: {message[:50]}")  # Логируем только первые 100 символов для больших сообщений
 
                 # Парсим JSON
                 try:
                     data = json.loads(message)
                     message_type = data.get("type")
+
+                    # Обработка подписки - запоминаем namespace для direct_event_handler
+                    if message_type == "subscribe":
+                        resource_type = data.get("resourceType")
+                        namespace = data.get("namespace")
+                        subscription_key = f"{resource_type}"
+                        # Сохраняем подписку с namespace для быстрой фильтрации
+                        subscriptions[subscription_key] = namespace
+                        logger.info(f"WEBSOCKET_SERVER: Добавлена подписка на {resource_type} в {namespace or 'all'}")
                     logger.debug(f"Тип сообщения: {message_type}")
                 except json.JSONDecodeError:
                     logger.warning(f"Получено некорректное JSON сообщение: {message}")
@@ -613,6 +675,14 @@ async def handle_websocket(websocket):
 
         logger.info(f"Выполняется очистка для соединения: {connection_info}")
 
+        # Удаляем прямую подписку при завершении соединения
+        if direct_subscriber_id is not None:
+            try:
+                remove_direct_subscriber(direct_subscriber_id)
+                logger.info(f"WEBSOCKET_SERVER: Удалена прямая подписка {direct_subscriber_id} при закрытии соединения")
+            except Exception as e:
+                logger.error(f"WEBSOCKET_SERVER: Ошибка при удалении прямой подписки: {e}")
+
         # Объявляем закрытие соединения и помечаем его как неактивное
         try:
             # Проверяем состояние соединения с использованием универсального метода
@@ -940,8 +1010,81 @@ async def periodic_ping_all_connections():
         logger.error(f"Ошибка в periodic_ping_all_connections: {e}")
         logger.error(traceback.format_exc())
 
-# Код удален, т.к. он перемещен в функцию run_server
+async def send_initial_state(
+    connection_id,
+    resource_type,
+    namespace = None
+) -> None:
+    """Отправка текущего состояния ресурсов после подписки с оптимизацией загрузки."""
+    websocket = _active_connections.get(connection_id)
+    if not websocket:
+        return
 
+    # Получение ресурсов в зависимости от наличия namespace
+    resources = []
+    if namespace:
+        resources = get_resources_by_namespace(resource_type, namespace)
+    else:
+        resources = get_resources_by_type(resource_type)
+
+    total_count = len(resources)
+    logger.info(f"WebSocket: Отправка {total_count} начальных ресурсов типа {resource_type}")
+
+    # Отправка информации о начале загрузки и общем количестве ресурсов
+    await websocket.send(json.dumps({
+        "type": "initial_state_start",
+        "resourceType": resource_type,
+        "totalCount": total_count,
+        "namespace": namespace
+    }))
+
+    try:
+        # Оптимизация 1: Разбиваем на пакеты по 50 ресурсов
+        BATCH_SIZE = 50
+        sent_count = 0
+
+        for i in range(0, total_count, BATCH_SIZE):
+            # Формируем пакет ресурсов (до 50 штук)
+            batch = resources[i:i+BATCH_SIZE]
+            batch_message = {
+                "type": "resource_batch",
+                "eventType": "INITIAL",
+                "resourceType": resource_type,
+                "resources": batch,
+                "batchNumber": i // BATCH_SIZE + 1,
+                "totalBatches": (total_count + BATCH_SIZE - 1) // BATCH_SIZE,
+                "progress": min(100, int((i + len(batch)) / total_count * 100))
+            }
+
+            # Отправляем пакет и не ждем завершения отправки
+            await websocket.send(json.dumps(batch_message))
+            sent_count += len(batch)
+
+            # Добавляем небольшую паузу между пакетами для обработки клиентом
+            await asyncio.sleep(0.01)
+
+            # Периодически сообщаем о прогрессе для крупных объемов данных
+            if (i // BATCH_SIZE) % 5 == 0 and i > 0:
+                logger.info(f"WebSocket: Отправлено {sent_count} из {total_count} начальных ресурсов")
+
+    except Exception as e:
+        logger.error(f"Ошибка при отправке начальных данных: {e}")
+        # Отправка сообщения об ошибке клиенту
+        try:
+            await websocket.send(json.dumps({
+                "type": "error",
+                "message": f"Ошибка при загрузке начальных данных: {str(e)}"
+            }))
+        except:
+            pass
+
+    # Отправка сообщения о завершении начальной загрузки
+    await websocket.send(json.dumps({
+        "type": "initial_state_complete",
+        "resourceType": resource_type,
+        "count": sent_count,
+        "namespace": namespace or "all"
+    }))
 
 # Только если модуль запущен напрямую, а не импортирован
 if __name__ == "__main__":
