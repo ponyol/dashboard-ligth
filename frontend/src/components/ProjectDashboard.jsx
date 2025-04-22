@@ -50,6 +50,7 @@ export default function ProjectDashboard() {
         subscribe('namespaces');
         subscribe('deployments', selectedNamespace || null);
         subscribe('statefulsets', selectedNamespace || null);
+        subscribe('pods', selectedNamespace || null);
       }
       setIsLoading(false);
     },
@@ -100,6 +101,7 @@ export default function ProjectDashboard() {
       // Переподписываемся на deployments и statefulsets с новым неймспейсом
       subscribe('deployments', selectedNamespace || null);
       subscribe('statefulsets', selectedNamespace || null);
+      subscribe('pods', selectedNamespace || null);
     }
   }, [isConnected, selectedNamespace, subscribe]);
 
@@ -139,6 +141,7 @@ export default function ProjectDashboard() {
       subscribe('namespaces');
       subscribe('deployments', selectedNamespace || null);
       subscribe('statefulsets', selectedNamespace || null);
+      subscribe('pods', selectedNamespace || null);
       setIsLoading(false);
     }
   }, [isConnected, connect, subscribe, selectedNamespace]);
@@ -188,8 +191,8 @@ export default function ProjectDashboard() {
         <div className="flex items-center">
           <span className={`inline-block w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
           <span>
-            {isConnected 
-              ? 'WebSocket connected - receiving real-time updates' 
+            {isConnected
+              ? 'WebSocket connected - receiving real-time updates'
               : (isConnecting ? 'Connecting to WebSocket...' : 'WebSocket disconnected - data may be stale')}
           </span>
         </div>

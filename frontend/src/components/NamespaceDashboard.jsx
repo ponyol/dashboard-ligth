@@ -17,7 +17,7 @@ export default function NamespaceDashboard() {
   // Состояние для индикации загрузки и ошибок
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   // Состояние для отслеживания компактного режима сортировки
   const [optimizedView, setOptimizedView] = useState(false);
 
@@ -37,6 +37,7 @@ export default function NamespaceDashboard() {
       subscribe('namespaces');
       subscribe('deployments');
       subscribe('statefulsets');
+      subscribe('pods');
       setIsLoading(false);
     },
     onDisconnect: () => {
@@ -61,6 +62,7 @@ export default function NamespaceDashboard() {
       subscribe('namespaces');
       subscribe('deployments');
       subscribe('statefulsets');
+      subscribe('pods');
       setIsLoading(false);
     }
   }, [isConnected, connect, subscribe]);
@@ -71,27 +73,27 @@ export default function NamespaceDashboard() {
       console.log("No namespaces available for stats calculation");
       return [];
     }
-    
+
     console.log(`Calculating stats for ${resources.namespaces.length} namespaces`);
     console.log(`Have ${resources.controllers?.length || 0} controllers available for stats calculation`);
-    
+
     const stats = {};
-    
+
     // Инициализация статистики для всех неймспейсов
     resources.namespaces.forEach(ns => {
-      stats[ns.name] = { 
+      stats[ns.name] = {
         namespace: ns,
-        deploymentCount: 0, 
+        deploymentCount: 0,
         podCount: 0,
         controllers: []
       };
     });
-    
+
     // Проверяем, что controllers определен
     if (resources.controllers && resources.controllers.length > 0) {
       // Логируем примеры контроллеров для проверки структуры данных
       console.log("Sample controller data:", resources.controllers[0]);
-      
+
       // Сначала соберем данные по контроллерам для каждого неймспейса
       resources.controllers.forEach(controller => {
         if (controller && controller.namespace && stats[controller.namespace]) {
@@ -101,18 +103,18 @@ export default function NamespaceDashboard() {
           console.log(`Skipping controller with invalid namespace: ${controller?.namespace}`);
         }
       });
-      
+
       // Теперь считаем поды для каждого неймспейса
       Object.keys(stats).forEach(nsName => {
         const nsStats = stats[nsName];
-        
+
         // Считаем поды в каждом контроллере
         nsStats.controllers.forEach(controller => {
           if (controller.replicas) {
             // Используем значение ready реплик как количество работающих подов
             const readyReplicas = controller.replicas.ready || 0;
             nsStats.podCount += readyReplicas;
-            
+
             // Также можно проверить поды напрямую, если они доступны
             if (controller.pods && Array.isArray(controller.pods)) {
               // Логирование для отладки
@@ -120,14 +122,14 @@ export default function NamespaceDashboard() {
             }
           }
         });
-        
+
         // Убедимся, что подсчет корректный (не отрицательный)
         nsStats.podCount = Math.max(0, nsStats.podCount);
       });
     } else {
       console.warn("No controllers available to calculate namespace stats");
     }
-    
+
     // Определяем статус каждого неймспейса для сортировки
     Object.values(stats).forEach(ns => {
       if (ns.deploymentCount === 0) {
@@ -140,14 +142,14 @@ export default function NamespaceDashboard() {
         ns.status = 'progressing';
       }
     });
-    
+
     return Object.values(stats);
   }, [resources.namespaces, resources.controllers]);
 
   // Сортировка и организация неймспейсов
   const sortNamespaces = useCallback((stats) => {
     if (!stats || stats.length === 0) return [];
-    
+
     // Сначала сортируем по статусу, затем по алфавиту
     return [...stats].sort((a, b) => {
       // Сортировка по статусу: healthy -> progressing -> scaled_zero
@@ -155,7 +157,7 @@ export default function NamespaceDashboard() {
       if (statusOrder[a.status] !== statusOrder[b.status]) {
         return statusOrder[a.status] - statusOrder[b.status];
       }
-      
+
       // Внутри одного статуса сортируем по алфавиту
       return a.namespace.name.localeCompare(b.namespace.name);
     });
@@ -202,13 +204,13 @@ export default function NamespaceDashboard() {
           <div className="flex items-center">
             <span className={`inline-block w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
             <span>
-              {isConnected 
-                ? 'WebSocket connected - receiving real-time updates' 
+              {isConnected
+                ? 'WebSocket connected - receiving real-time updates'
                 : (isConnecting ? 'Connecting to WebSocket...' : 'WebSocket disconnected - data may be stale')}
             </span>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {/* Переключатель компактного режима */}
           <div className="flex items-center justify-end gap-2 bg-gray-50 dark:bg-gray-800 p-2 rounded-lg">
@@ -227,7 +229,7 @@ export default function NamespaceDashboard() {
               </div>
             </label>
           </div>
-          
+
           {/* Кнопка переподключения - отображается только когда соединение разорвано */}
           {!isConnected && (
             <button

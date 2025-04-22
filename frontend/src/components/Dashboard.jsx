@@ -24,7 +24,7 @@ export default function Dashboard() {
     handleNamespaceChange,
     handleClearCache,
   } = useK8sApi();
-  
+
   // Get WebSocket client for real-time updates
   const {
     isConnected: wsConnected,
@@ -55,13 +55,13 @@ export default function Dashboard() {
   useEffect(() => {
     fetchControllers();
   }, [fetchControllers, selectedNamespace]);
-  
+
   // Подписка на обновления неймспейсов через WebSocket - не зависит от выбранного namespace
   useEffect(() => {
     if (wsConnected) {
       console.log('Subscribing to namespaces updates via WebSocket');
       subscribe('namespaces', null);
-      
+
       // Очистка при размонтировании
       return () => {
         console.log('Unsubscribing from namespaces updates');
@@ -76,21 +76,24 @@ export default function Dashboard() {
       // Отписываемся от предыдущих обновлений
       unsubscribe('deployments');
       unsubscribe('statefulsets');
-      
+      // unsubscribe('pods');
+
       // Подписываемся на обновления сначала с null namespace, чтобы получить все данные
       // Это важно, чтобы иметь все контроллеры для последующей фильтрации
       subscribe('deployments', null);
       subscribe('statefulsets', null);
-      
+      subscribe('pods', null);
+
       console.log(`Subscribed to controllers WebSocket updates for all namespaces`);
       console.log(`Current namespace filter (client-side): ${selectedNamespace || 'all'}`);
     }
-    
+
     // Очистка при размонтировании
     return () => {
       if (wsConnected) {
         unsubscribe('deployments');
         unsubscribe('statefulsets');
+        // unsubscribe('pods');
       }
     };
   }, [wsConnected, subscribe, unsubscribe]); // Убран selectedNamespace из зависимостей
@@ -128,75 +131,75 @@ export default function Dashboard() {
 
   // Комбинируем данные из HTTP API и WebSocket
   // Приоритет отдаем данным из WebSocket, если они есть
-  const namespaces = wsResources.namespaces && wsResources.namespaces.length > 0 
+  const namespaces = wsResources.namespaces && wsResources.namespaces.length > 0
     ? wsResources.namespaces
     : httpNamespaces;
-  
+
   // Приоритет отдаем данным из WebSocket, если они есть, но применяем фильтрацию по выбранному namespace
-  let controllersToShow = wsResources.controllers && wsResources.controllers.length > 0 
-    ? wsResources.controllers 
+  let controllersToShow = wsResources.controllers && wsResources.controllers.length > 0
+    ? wsResources.controllers
     : httpControllers;
-    
+
   // Фильтруем контроллеры по выбранному неймспейсу если он задан
   if (selectedNamespace) {
     controllersToShow = controllersToShow.filter(c => c.namespace === selectedNamespace);
   }
-  
+
   // Сортируем контроллеры по имени для более стабильного отображения
   const controllers = controllersToShow.sort((a, b) => a.name.localeCompare(b.name));
-    
+
   // Debugging info для отслеживания обновлений данных
   useEffect(() => {
-    console.log(`WebSocket resources updated: 
+    console.log(`WebSocket resources updated:
       Namespaces: ${wsResources.namespaces?.length || 0}
       Controllers (total): ${wsResources.controllers?.length || 0}
       Controllers (filtered): ${controllers.length}
     `);
-    
+
     // Выводим HTTP данные для сравнения
-    console.log(`HTTP API data: 
+    console.log(`HTTP API data:
       Namespaces: ${httpNamespaces?.length || 0}
       Controllers: ${httpControllers?.length || 0}
     `);
-    
+
     // Вывод информации о фильтрации
     if (selectedNamespace) {
       console.log(`Filtering by namespace: ${selectedNamespace}`);
       console.log(`Controllers after filtering: ${controllers.length}`);
     }
-    
+
     // Добавляем отдельную функцию для отчета по статистике
     try {
       console.log("=== Namespace Statistics ===");
-      
+
       // Безопасно проверяем наличие данных
       const hasNamespaces = Array.isArray(wsResources.namespaces) || Array.isArray(httpNamespaces);
       const hasControllers = Array.isArray(wsResources.controllers) || Array.isArray(httpControllers);
-      
+
       if (!hasNamespaces) {
         console.log("No namespaces available to calculate stats");
       }
-      
+
       if (!hasControllers) {
         console.log("No controllers available to calculate namespace stats");
       }
-      
+
       // Только если есть и неймспейсы и контроллеры, выполняем анализ
       if (hasNamespaces && hasControllers) {
         // Используем данные из WebSocket если они есть, иначе из HTTP API
-        const namespacesToAnalyze = (wsResources.namespaces?.length > 0) 
-          ? wsResources.namespaces 
+        const namespacesToAnalyze = (wsResources.namespaces?.length > 0)
+          ? wsResources.namespaces
           : (Array.isArray(httpNamespaces) ? httpNamespaces : []);
-          
-        const controllerData = (wsResources.controllers?.length > 0) 
-          ? wsResources.controllers 
+
+        const controllerData = (wsResources.controllers?.length > 0)
+          ? wsResources.controllers
           : (Array.isArray(httpControllers) ? httpControllers : []);
-        
+
         console.log(`Analyzing ${namespacesToAnalyze.length} namespaces and ${controllerData.length} controllers`);
-        
+
         // Создаем карту для группировки контроллеров по неймспейсам
         const namespaceStats = {};
-        
+
         // Инициализируем статистику для каждого неймспейса
         namespacesToAnalyze.forEach(ns => {
           if (ns && typeof ns === 'object' && ns.name) {
@@ -205,47 +208,47 @@ export default function Dashboard() {
             console.warn("Invalid namespace object:", ns);
           }
         });
-        
+
         // Дополнительный вывод для отладки структуры данных
         console.log("Sample namespace object:", namespacesToAnalyze[0]);
         console.log("Sample controller object:", controllerData[0]);
-        
+
         // Подсчитываем контроллеры для каждого неймспейса
         controllerData.forEach(controller => {
           if (!controller) return;
-          
+
           const namespace = controller.namespace;
           if (namespace && namespaceStats[namespace]) {
             namespaceStats[namespace].controllers++;
-            
+
             // Подсчитываем поды, если информация о них есть
             if (controller.pods && Array.isArray(controller.pods)) {
               namespaceStats[namespace].pods += controller.pods.length;
             }
           }
         });
-        
+
         // Выводим статистику для каждого неймспейса
         console.log("Namespace statistics (name - controllers - pods):");
-        
+
         // Подсчитаем общее количество контроллеров и подов
         let totalControllers = 0;
         let totalPods = 0;
-        
+
         // Выводим только непустые неймспейсы и считаем общую статистику
         Object.entries(namespaceStats).forEach(([namespace, stats]) => {
           totalControllers += stats.controllers;
           totalPods += stats.pods;
-          
+
           // Выводим только непустые неймспейсы для уменьшения шума
           if (stats.controllers > 0 || stats.pods > 0) {
             console.log(`${namespace} - ${stats.controllers} - ${stats.pods}`);
           }
         });
-        
+
         // Выводим суммарную статистику
         console.log(`TOTAL - ${totalControllers} controllers - ${totalPods} pods`);
-        
+
         // Проверяем текущий выбранный неймспейс
         if (selectedNamespace) {
           console.log(`Selected namespace: ${selectedNamespace}`);
@@ -255,16 +258,16 @@ export default function Dashboard() {
           console.log("No namespace selected (showing all namespaces)");
         }
       }
-      
+
       console.log("=== End of Namespace Statistics ===");
     } catch (error) {
       console.error("Error generating namespace statistics:", error);
     }
   }, [wsResources, httpNamespaces, httpControllers, controllers, selectedNamespace]);
-    
+
   const isLoading = httpIsLoading || wsConnecting;
   const error = wsError || httpError;
-  
+
   // Если идет загрузка и еще нет данных, показываем индикатор загрузки
   if (isLoading && controllers.length === 0) {
     return (
@@ -371,16 +374,16 @@ export default function Dashboard() {
           )}
           <span className="mx-2">•</span>
           <span>
-            {wsConnected 
-              ? 'Real-time updates via WebSocket' 
+            {wsConnected
+              ? 'Real-time updates via WebSocket'
               : 'Using HTTP API (WebSocket not connected)'}
           </span>
           <span className="mx-2">•</span>
           <span>Last update: {new Date().toLocaleTimeString()}</span>
           <span className="mx-2">•</span>
           <span>
-            Data source: {wsResources.controllers && wsResources.controllers.length > 0 
-              ? `WebSocket (${wsResources.controllers.length} items)` 
+            Data source: {wsResources.controllers && wsResources.controllers.length > 0
+              ? `WebSocket (${wsResources.controllers.length} items)`
               : `HTTP (${httpControllers.length} items)`}
           </span>
         </div>

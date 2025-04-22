@@ -34,21 +34,25 @@ def configure_logging(level: Optional[str] = None) -> None:
 
     # Настройка логирования для kubernetes клиента
     # Это должно отключить отладочные сообщения от kubernetes.client.rest
-    logging.getLogger('kubernetes').setLevel(numeric_level)
-    logging.getLogger('kubernetes.client').setLevel(numeric_level)
-    logging.getLogger('kubernetes.client.rest').setLevel(numeric_level)
-    logging.getLogger('kubernetes.config').setLevel(numeric_level)
-    
+    # logging.getLogger('kubernetes').setLevel(numeric_level)
+    # logging.getLogger('kubernetes.client').setLevel(numeric_level)
+    # logging.getLogger('kubernetes.client.rest').setLevel(numeric_level)
+    # logging.getLogger('kubernetes.config').setLevel(numeric_level)
+    logging.getLogger('kubernetes').setLevel('INFO')
+    logging.getLogger('kubernetes.client').setLevel('INFO')
+    logging.getLogger('kubernetes.client.rest').setLevel('INFO')
+    logging.getLogger('kubernetes.config').setLevel('INFO')
+
     # Настройка логирования для websockets
     websockets_logger = logging.getLogger('websockets')
     websockets_logger.setLevel(numeric_level)
-    
+
     # Проверка для отладки
     is_debug = numeric_level <= logging.DEBUG
     if not is_debug:
         # Если не отладка, установим WARNING для некоторых библиотек
         logging.getLogger('urllib3').setLevel(logging.WARNING)
-    
+
     logger.info(f"Уровень логирования установлен: {level.upper()}")
 
 
