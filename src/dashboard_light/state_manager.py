@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from typing import Any, Dict, List, Set, Callable, Awaitable, Optional, Tuple
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ async def update_resource_state(
         resource_type: Тип ресурса ('deployments', 'pods', 'namespaces', etc.)
         resource_data: Данные о ресурсе
     """
+    start_time = time.time()
     try:
         # Проверка валидности данных
         if not resource_data or not isinstance(resource_data, dict):
@@ -87,6 +89,11 @@ async def update_resource_state(
         # Создаем задачу для оповещения подписчиков без ожидания ее завершения
         # Это предотвращает блокировку основного цикла
         asyncio.create_task(notify_subscribers(event_type, resource_type, resource_data))
+
+        # Добавляем отметку времени для отслеживания задержек
+        processing_time = time.time() - start_time
+        if processing_time > 0.5:  # Если обработка заняла больше 0.5 секунды
+            logger.warning(f"STATE_MANAGER: Длительная обработка события {event_type} для {resource_type}/{namespace}/{name}: {processing_time:.3f}с")
 
     except Exception as e:
         logger.error(f"STATE_MANAGER: Критическая ошибка при обработке события {event_type} для {resource_type}: {e}")

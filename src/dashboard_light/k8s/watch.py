@@ -407,7 +407,7 @@ class WatchManager:
 
                 # Параметры для Watch API
                 params = {
-                    "timeout_seconds": 30  # Уменьшенный таймаут для более частой проверки статуса
+                    "timeout_seconds": 5  # Уменьшенный таймаут для более частой проверки статуса
                 }
 
                 # Добавляем resource_version, если она есть
@@ -513,55 +513,61 @@ class WatchManager:
         """Обработка событий из очереди и их отправка в state_manager."""
         while self.running and not self.stop_event.is_set():
             try:
-                # Получаем следующее событие с таймаутом
-                # чтобы периодически проверять состояние менеджера
-                try:
-                    event = await asyncio.wait_for(self.event_queue.get(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    # Проверка на "зависшее" наблюдение - если долго нет событий
-                    if self.last_event_time > 0:
-                        time_since_last = time.time() - self.last_event_time
-                        if time_since_last > 60:  # 1 минута без событий
-                            logger.warning(f"WatchManager: Нет событий для {self.resource_type} в течение {time_since_last:.1f} секунд")
-                            # Но не прерываем наблюдение, так как это может быть нормально
-                    continue
+                # Обрабатываем пакетами до 10 событий за раз для ускорения
+                batch_processed = 0
+                max_batch_size = 10
 
-                # Получаем информацию о событии
-                event_type = event.get('type', 'UNKNOWN')
+                # Обработка пакета событий
+                while batch_processed < max_batch_size:
+                    try:
+                        # Пробуем получить событие без длительного блокирования
+                        event = self.event_queue.get_nowait()
 
-                # Если тип события неизвестен, игнорируем его
-                if event_type not in ['ADDED', 'MODIFIED', 'DELETED']:
-                    logger.warning(f"WatchManager: Неизвестный тип события: {event_type}")
-                    self.event_queue.task_done()
-                    continue
+                        # Обработка событий как раньше
+                        event_type = event.get('type', 'UNKNOWN')
 
-                # Используем предварительно преобразованный словарь, если он есть
-                if 'dict' in event:
-                    resource_dict = event['dict']
-                else:
-                    # Если нет, преобразуем объект в словарь
-                    obj = event.get('object')
-                    resource_dict = _convert_to_dict(self.resource_type, obj)
+                        # Если тип события неизвестен, игнорируем его
+                        if event_type not in ['ADDED', 'MODIFIED', 'DELETED']:
+                            logger.warning(f"WatchManager: Неизвестный тип события: {event_type}")
+                            self.event_queue.task_done()
+                            continue
 
-                # Проверка, не пропущен ли ресурс при преобразовании (например, из-за фильтрации)
-                if not resource_dict:
-                    self.event_queue.task_done()
-                    continue
+                        # Используем предварительно преобразованный словарь, если он есть
+                        if 'dict' in event:
+                            resource_dict = event['dict']
+                        else:
+                            # Если нет, преобразуем объект в словарь
+                            obj = event.get('object')
+                            resource_dict = _convert_to_dict(self.resource_type, obj)
 
-                # Логируем информацию о событии
-                name = resource_dict.get('name', 'unknown')
-                namespace = resource_dict.get('namespace', '')
-                logger.info(f"WatchManager: Обработка события {event_type} для {self.resource_type}/{namespace}/{name}")
+                        # Проверка, не пропущен ли ресурс при преобразовании
+                        if not resource_dict:
+                            self.event_queue.task_done()
+                            continue
 
-                # Отправляем событие в state_manager
-                try:
-                    await update_resource_state(event_type, self.resource_type, resource_dict)
-                    logger.debug(f"WatchManager: Событие {event_type} для {self.resource_type}/{namespace}/{name} отправлено в state_manager")
-                except Exception as e:
-                    logger.error(f"WatchManager: Ошибка при отправке события в state_manager: {e}")
+                        # Логируем информацию о событии
+                        name = resource_dict.get('name', 'unknown')
+                        namespace = resource_dict.get('namespace', '')
+                        logger.info(f"WatchManager: Обработка события {event_type} для {self.resource_type}/{namespace}/{name}")
 
-                # Отмечаем задачу как выполненную
-                self.event_queue.task_done()
+                        # Отправляем событие в state_manager
+                        try:
+                            await update_resource_state(event_type, self.resource_type, resource_dict)
+                            logger.debug(f"WatchManager: Событие {event_type} для {self.resource_type}/{namespace}/{name} отправлено в state_manager")
+                        except Exception as e:
+                            logger.error(f"WatchManager: Ошибка при отправке события в state_manager: {e}")
+
+                        # Отмечаем задачу как выполненную
+                        self.event_queue.task_done()
+                        batch_processed += 1
+
+                    except asyncio.QueueEmpty:
+                        # Очередь пуста, выходим из внутреннего цикла
+                        break
+
+                # Если ничего не обработали за этот проход, подождем немного
+                if batch_processed == 0:
+                    await asyncio.sleep(0.1)  # Короткая пауза вместо длительного ожидания
 
             except asyncio.CancelledError:
                 # Корректное завершение при отмене
@@ -570,6 +576,69 @@ class WatchManager:
             except Exception as e:
                 logger.error(f"WatchManager: Ошибка при обработке события для {self.resource_type}: {e}")
                 logger.error(f"WatchManager: Трассировка: {traceback.format_exc()}")
+                # Короткая пауза после ошибки
+                await asyncio.sleep(0.5)
+    # async def _process_events(self):
+    #     """Обработка событий из очереди и их отправка в state_manager."""
+    #     while self.running and not self.stop_event.is_set():
+    #         try:
+    #             # Получаем следующее событие с таймаутом
+    #             # чтобы периодически проверять состояние менеджера
+    #             try:
+    #                 event = await asyncio.wait_for(self.event_queue.get(), timeout=5.0)
+    #             except asyncio.TimeoutError:
+    #                 # Проверка на "зависшее" наблюдение - если долго нет событий
+    #                 if self.last_event_time > 0:
+    #                     time_since_last = time.time() - self.last_event_time
+    #                     if time_since_last > 60:  # 1 минута без событий
+    #                         logger.warning(f"WatchManager: Нет событий для {self.resource_type} в течение {time_since_last:.1f} секунд")
+    #                         # Но не прерываем наблюдение, так как это может быть нормально
+    #                 continue
+
+    #             # Получаем информацию о событии
+    #             event_type = event.get('type', 'UNKNOWN')
+
+    #             # Если тип события неизвестен, игнорируем его
+    #             if event_type not in ['ADDED', 'MODIFIED', 'DELETED']:
+    #                 logger.warning(f"WatchManager: Неизвестный тип события: {event_type}")
+    #                 self.event_queue.task_done()
+    #                 continue
+
+    #             # Используем предварительно преобразованный словарь, если он есть
+    #             if 'dict' in event:
+    #                 resource_dict = event['dict']
+    #             else:
+    #                 # Если нет, преобразуем объект в словарь
+    #                 obj = event.get('object')
+    #                 resource_dict = _convert_to_dict(self.resource_type, obj)
+
+    #             # Проверка, не пропущен ли ресурс при преобразовании (например, из-за фильтрации)
+    #             if not resource_dict:
+    #                 self.event_queue.task_done()
+    #                 continue
+
+    #             # Логируем информацию о событии
+    #             name = resource_dict.get('name', 'unknown')
+    #             namespace = resource_dict.get('namespace', '')
+    #             logger.info(f"WatchManager: Обработка события {event_type} для {self.resource_type}/{namespace}/{name}")
+
+    #             # Отправляем событие в state_manager
+    #             try:
+    #                 await update_resource_state(event_type, self.resource_type, resource_dict)
+    #                 logger.debug(f"WatchManager: Событие {event_type} для {self.resource_type}/{namespace}/{name} отправлено в state_manager")
+    #             except Exception as e:
+    #                 logger.error(f"WatchManager: Ошибка при отправке события в state_manager: {e}")
+
+    #             # Отмечаем задачу как выполненную
+    #             self.event_queue.task_done()
+
+    #         except asyncio.CancelledError:
+    #             # Корректное завершение при отмене
+    #             logger.info(f"WatchManager: Задача обработки событий для {self.resource_type} отменена")
+    #             break
+    #         except Exception as e:
+    #             logger.error(f"WatchManager: Ошибка при обработке события для {self.resource_type}: {e}")
+    #             logger.error(f"WatchManager: Трассировка: {traceback.format_exc()}")
 
 async def _watch_resource(
     k8s_client: Dict[str, Any],

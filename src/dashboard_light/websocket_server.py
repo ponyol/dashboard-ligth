@@ -46,10 +46,10 @@ stats = {
 
 async def ensure_k8s_watchers_running(k8s_client):
     """Функция для обеспечения запуска наблюдателей Kubernetes.
-    
+
     Args:
         k8s_client: Словарь с Kubernetes клиентами
-        
+
     Returns:
         bool: True если наблюдатели запущены успешно, False в противном случае
     """
@@ -58,49 +58,49 @@ async def ensure_k8s_watchers_running(k8s_client):
         if not k8s_client or not isinstance(k8s_client, dict):
             logger.error("WEBSOCKET_SERVER: K8s клиент невалиден")
             return False
-            
+
         if "is_mock" in k8s_client and k8s_client["is_mock"]:
             logger.warning("WEBSOCKET_SERVER: Используется макет K8s клиента, наблюдатели не будут запущены")
             # В режиме эмуляции имитируем успешный запуск
             return True
-            
+
         # Проверяем, запущены ли уже наблюдатели
         active_watches = get_active_watches()
         logger.info(f"WEBSOCKET_SERVER: Текущие активные наблюдения: {active_watches}")
-        
+
         # Если есть активные наблюдения за основными ресурсами, считаем что все работает
         required_resources = ['deployments', 'pods', 'namespaces', 'statefulsets']
         if all(resource in active_watches for resource in required_resources):
             logger.info("WEBSOCKET_SERVER: Все необходимые наблюдатели уже запущены")
             return True
-            
+
         # Останавливаем существующие наблюдатели для чистого запуска
         logger.info("WEBSOCKET_SERVER: Останавливаем текущие наблюдатели перед перезапуском")
         await stop_watching()
-        
+
         # Запускаем наблюдение за всеми требуемыми ресурсами
         logger.info(f"WEBSOCKET_SERVER: Запуск наблюдения за ресурсами: {required_resources}")
         watch_tasks = await start_watching(k8s_client, required_resources)
-        
+
         # Проверяем результаты
         logger.info(f"WEBSOCKET_SERVER: Запущены наблюдатели: {list(watch_tasks.keys())}")
-        
+
         # Немного ждем для инициализации наблюдателей
         await asyncio.sleep(1)
-        
+
         # Проверяем активные наблюдения после запуска
         active_watches = get_active_watches()
         logger.info(f"WEBSOCKET_SERVER: Активные наблюдения после запуска: {active_watches}")
-        
+
         # Проверяем, что запущены все необходимые наблюдатели
         missing_resources = [r for r in required_resources if r not in active_watches]
         if missing_resources:
             logger.error(f"WEBSOCKET_SERVER: Не удалось запустить наблюдатели для: {missing_resources}")
             return False
-            
+
         logger.info("WEBSOCKET_SERVER: Все наблюдатели успешно запущены")
         return True
-        
+
     except Exception as e:
         logger.error(f"WEBSOCKET_SERVER: Ошибка при запуске наблюдателей: {e}")
         logger.error(traceback.format_exc())
@@ -108,7 +108,7 @@ async def ensure_k8s_watchers_running(k8s_client):
 
 async def handle_websocket(websocket):
     """Обработка WebSocket соединения с использованием семафора для ограничения нагрузки."""
-    
+
     # Пытаемся захватить семафор без блокировки
     if not connection_semaphore.locked() and connection_semaphore._value <= 0:
         # Если семафор заблокирован, отклоняем соединение
@@ -119,7 +119,7 @@ async def handle_websocket(websocket):
         except Exception as e:
             logger.error(f"Ошибка при отклонении соединения: {e}")
         return
-        
+
     # Используем семафор для ограничения числа одновременных обработчиков
     async with connection_semaphore:
         # Добавляем соединение в список активных и обновляем статистику
@@ -146,17 +146,17 @@ async def handle_websocket(websocket):
         # Инициализация Kubernetes клиента с обработкой ошибок
         try:
             logger.info("WEBSOCKET_SERVER: Инициализация Kubernetes клиента внутри обработчика...")
-            
+
             try:
                 # Пытаемся создать полноценный K8s клиент с подключением к кластеру
                 k8s_client = k8s.create_k8s_client(app_config)
-                
+
                 # Проверка, что k8s_client содержит необходимые API
                 if "core_v1_api" not in k8s_client or "apps_v1_api" not in k8s_client:
                     logger.error("WEBSOCKET_SERVER: K8s клиент не содержит необходимые API!")
                     logger.error(f"WEBSOCKET_SERVER: Доступные ключи в k8s_client: {k8s_client.keys()}")
                     raise ValueError("Kubernetes клиент не содержит необходимые API")
-                    
+
                 # Проверяем, что клиент не в режиме эмуляции
                 if k8s_client.get("is_mock"):
                     logger.warning("WEBSOCKET_SERVER: K8s клиент в режиме эмуляции, реальные данные не будут доступны")
@@ -168,19 +168,19 @@ async def handle_websocket(websocket):
                 else:
                     logger.info(f"WEBSOCKET_SERVER: K8s клиент инициализирован успешно через {k8s_client.get('connection_method', 'unknown')}")
                     logger.info(f"WEBSOCKET_SERVER: Доступные API: {list(k8s_client.keys())}")
-                
+
             except Exception as k8s_error:
                 # Если не удалось создать клиент с подключением к кластеру,
                 # логируем ошибку и создаем минимальный клиент для базовой работы
                 logger.error(f"WEBSOCKET_SERVER: Критическая ошибка при инициализации K8s клиента: {str(k8s_error)}")
                 logger.error(traceback.format_exc())
-                
+
                 # Отправляем сообщение об ошибке клиенту
                 await websocket.send(json.dumps({
                     "type": "error",
                     "message": f"Не удалось подключиться к Kubernetes API: {str(k8s_error)}"
                 }))
-                
+
                 # Создаем заглушку для предотвращения ошибок
                 k8s_client = {
                     "is_mock": True,
@@ -189,13 +189,13 @@ async def handle_websocket(websocket):
                     "custom_objects_api": None,
                     "api_client": None
                 }
-                
+
         except Exception as e:
             # Этот блок перехватывает все остальные ошибки, которые могут произойти
             # в процессе обработки подключения к K8s
             logger.error(f"WEBSOCKET_SERVER: Непредвиденная ошибка: {str(e)}")
             logger.error(traceback.format_exc())
-            
+
             # Отправляем сообщение об ошибке клиенту
             try:
                 await websocket.send(json.dumps({
@@ -204,7 +204,7 @@ async def handle_websocket(websocket):
                 }))
             except:
                 pass
-                
+
             # Создаем заглушку в самом крайнем случае
             k8s_client = {
                 "is_mock": True,
@@ -225,17 +225,17 @@ async def handle_websocket(websocket):
         try:
             try:
                 watchers_running = await ensure_k8s_watchers_running(k8s_client)
-                
+
                 if watchers_running:
                     logger.info("WEBSOCKET_SERVER: K8s наблюдатели успешно запущены и работают")
-                    
+
                     # При успешном запуске наблюдателей нет необходимости в тестовых данных,
                     # так как реальные данные должны приходить напрямую от K8s API
                     logger.info("WEBSOCKET_SERVER: Ждем получения реальных данных от Kubernetes API")
-                    
+
                 else:
                     logger.warning("WEBSOCKET_SERVER: Не удалось запустить K8s наблюдатели")
-                    
+
                     # Отправляем сообщение об ошибке клиенту
                     try:
                         await websocket.send(json.dumps({
@@ -244,20 +244,20 @@ async def handle_websocket(websocket):
                         }))
                     except Exception as send_error:
                         logger.error(f"WEBSOCKET_SERVER: Не удалось отправить сообщение об ошибке: {send_error}")
-                
+
             except Exception as e:
                 logger.error(f"WEBSOCKET_SERVER: Непредвиденная ошибка при запуске наблюдателей: {str(e)}")
                 logger.error(traceback.format_exc())
         except Exception as e:
             logger.error(f"WEBSOCKET_SERVER: Глобальная ошибка: {str(e)}")
             logger.error(traceback.format_exc())
-        
+
         # Обработка входящих сообщений
         async for message in websocket:
             try:
                 # Обновляем счетчик полученных сообщений
                 stats["messages_received"] += 1
-                
+
                 logger.debug(f"Получено сообщение: {message[:100]}")  # Логируем только первые 100 символов для больших сообщений
 
                 # Парсим JSON
@@ -304,12 +304,39 @@ async def handle_websocket(websocket):
                         async def send_resource_update(event_type, resource_type, resource_data):
                             # Отладочное сообщение при получении обновления
                             logger.info(f"WEBSOCKET_SERVER: Получено обновление {event_type} для {resource_type}/{resource_data.get('namespace', '')}/{resource_data.get('name', '')}")
-                            
+
                             # Если указан namespace, фильтруем по нему
+                            # Изменяем логику фильтрации: добавляем передачу важных событий даже если namespace не совпадает
                             if namespace and resource_data.get("namespace") != namespace:
+                                # Базовый кейс - логируем пропуск
                                 logger.debug(f"WEBSOCKET_SERVER: Пропуск обновления из-за несовпадения namespace: запрошен {namespace}, получен {resource_data.get('namespace', '')}")
-                                return
-                                
+
+                                # Проверяем важные события, которые нужно отправлять всегда
+                                is_important = False
+
+                                # 1. Если это pod из deployment/statefulset, на который подписан клиент
+                                if resource_type == "pods" and "owner_references" in resource_data:
+                                    for owner in resource_data["owner_references"]:
+                                        # Если владелец находится в запрошенном namespace
+                                        owner_name = owner.get("name", "")
+                                        if owner.get("kind") in ["ReplicaSet", "StatefulSet"] and owner_name.startswith(namespace):
+                                            is_important = True
+                                            logger.info(f"WEBSOCKET_SERVER: Отправляем pod из другого namespace ({resource_data.get('namespace', '')}), так как его владелец в запрошенном namespace ({namespace})")
+                                            break
+
+                                # 2. Если это deployment/statefulset с связанными ресурсами в запрошенном namespace
+                                if resource_type in ["deployments", "statefulsets"] and resource_data.get("status") in ["error", "progressing"]:
+                                    # Проверка на критические статусы
+                                    is_important = True
+                                    logger.info(f"WEBSOCKET_SERVER: Отправляем {resource_type} с критическим статусом {resource_data.get('status')} из namespace {resource_data.get('namespace', '')}")
+
+                                # Если событие не важное, пропускаем его
+                                if not is_important:
+                                    return
+                            # if namespace and resource_data.get("namespace") != namespace:
+                            #     logger.debug(f"WEBSOCKET_SERVER: Пропуск обновления из-за несовпадения namespace: запрошен {namespace}, получен {resource_data.get('namespace', '')}")
+                            #     return
+
                             # Фильтрация неймспейсов по паттернам из конфигурации
                             if resource_type == "namespaces":
                                 # Получаем паттерны фильтрации из конфигурации
@@ -328,12 +355,12 @@ async def handle_websocket(websocket):
                             try:
                                 # Проверяем, что соединение всё ещё активно
                                 from websockets.exceptions import ConnectionClosed
-                                
+
                                 # Сначала просто проверим, что соединение в active_connections
                                 if websocket not in active_connections:
                                     logger.debug(f"Соединение уже не активно, пропускаем отправку обновления {resource_type}")
                                     return
-                                
+
                                 # Объективно проверяем состояние соединения
                                 # Разные версии websockets используют разные атрибуты
                                 try:
@@ -348,7 +375,7 @@ async def handle_websocket(websocket):
                                     elif hasattr(websocket, 'state'):
                                         from websockets.protocol import State
                                         is_closed = websocket.state != State.OPEN if hasattr(State, 'OPEN') else True
-                                        
+
                                     if is_closed:
                                         logger.debug(f"Соединение закрыто, пропускаем отправку обновления {resource_type}")
                                         if websocket in active_connections:
@@ -360,21 +387,21 @@ async def handle_websocket(websocket):
                                     if websocket in active_connections:
                                         active_connections.remove(websocket)
                                     return
-                                
+
                                 # Добавим дополнительную проверку данных перед отправкой
                                 if not resource_data or not isinstance(resource_data, dict):
                                     logger.warning(f"WEBSOCKET_SERVER: Некорректные данные для отправки: {resource_data}")
                                     return
-                                    
+
                                 if resource_type not in ["namespaces", "deployments", "pods", "statefulsets"]:
                                     logger.warning(f"WEBSOCKET_SERVER: Неизвестный тип ресурса: {resource_type}")
                                     return
-                                    
+
                                 # Проверим наличие имени ресурса
                                 if "name" not in resource_data:
                                     logger.warning(f"WEBSOCKET_SERVER: Отсутствует имя ресурса в данных: {resource_data}")
                                     return
-                                
+
                                 # Формируем сообщение для отправки
                                 message = {
                                     "type": "resource",
@@ -382,7 +409,7 @@ async def handle_websocket(websocket):
                                     "resourceType": resource_type,
                                     "resource": resource_data
                                 }
-                                
+
                                 # Теперь можно безопасно отправить сообщение
                                 resource_name = resource_data.get('name', 'unknown')
                                 resource_ns = resource_data.get('namespace', '')
@@ -409,10 +436,10 @@ async def handle_websocket(websocket):
                             from dashboard_light.k8s.watch import get_active_watches
                             active_watches = get_active_watches()
                             logger.info(f"WEBSOCKET_SERVER: Активные наблюдения: {active_watches}")
-                            
+
                             if resource_type not in active_watches:
                                 logger.warning(f"WEBSOCKET_SERVER: Запрошена подписка на {resource_type}, но этот тип ресурса не отслеживается через Watch API!")
-                                
+
                                 # Пытаемся запустить наблюдение, если тип ресурса валидный
                                 if resource_type in ["namespaces", "deployments", "pods", "statefulsets"]:
                                     logger.info(f"WEBSOCKET_SERVER: Попытка запустить наблюдение за {resource_type}...")
@@ -423,7 +450,7 @@ async def handle_websocket(websocket):
                                         logger.info(f"WEBSOCKET_SERVER: Наблюдение за {resource_type} запущено по запросу")
                                     except Exception as start_error:
                                         logger.error(f"WEBSOCKET_SERVER: Не удалось запустить наблюдение за {resource_type}: {start_error}")
-                            
+
                             # Регистрируем обработчик
                             callback_unsubscribe = subscribe(resource_type, send_resource_update)
 
@@ -451,40 +478,40 @@ async def handle_websocket(websocket):
                         # Отправляем текущее состояние ресурсов
                         resources = get_resources_by_type(resource_type)
                         logger.info(f"WEBSOCKET_SERVER: Отправка начального состояния: {len(resources)} ресурсов типа {resource_type}")
-                        
+
                         # Проверка, есть ли какие-то ресурсы для отправки
                         if len(resources) == 0:
                             logger.warning(f"WEBSOCKET_SERVER: Нет данных для отправки начального состояния типа {resource_type}")
-                            
+
                             # Если в кэше нет данных, запустим наблюдателей принудительно
                             logger.info(f"WEBSOCKET_SERVER: Принудительное получение начальных данных для {resource_type}")
                             try:
                                 # Получаем необходимый API клиент
                                 from dashboard_light.k8s.watch import _get_api_instance, _resource_functions, _convert_to_dict
                                 api_instance = _get_api_instance(k8s_client, resource_type)
-                                
+
                                 if api_instance:
                                     # Получаем функцию для получения списка ресурсов
                                     list_func = _resource_functions[resource_type]['list_func'](api_instance)
-                                    
+
                                     # Получаем текущие ресурсы
                                     items = list_func().items
-                                    
+
                                     for item in items:
                                         # Преобразуем в словарь
                                         resource_dict = _convert_to_dict(resource_type, item)
-                                        
+
                                         # Обновляем состояние через менеджер
                                         await update_resource_state("ADDED", resource_type, resource_dict)
-                                    
+
                                     logger.info(f"WEBSOCKET_SERVER: Принудительно получено {len(items)} ресурсов типа {resource_type}")
-                                    
+
                                     # Получаем обновленные ресурсы
                                     resources = get_resources_by_type(resource_type)
                                     logger.info(f"WEBSOCKET_SERVER: После принудительного обновления: {len(resources)} ресурсов типа {resource_type}")
                             except Exception as e:
                                 logger.error(f"WEBSOCKET_SERVER: Ошибка при принудительном получении данных: {e}")
-                        
+
                         # Фильтрация неймспейсов по паттернам из конфигурации
                         if resource_type == "namespaces":
                             # Получаем паттерны фильтрации из конфигурации
@@ -493,10 +520,10 @@ async def handle_websocket(websocket):
                                 from dashboard_light.k8s.namespaces import filter_namespaces_by_pattern
                                 resources = filter_namespaces_by_pattern(resources, namespace_patterns)
                                 logger.info(f"Применен фильтр по паттернам: {namespace_patterns}. Осталось {len(resources)} неймспейсов")
-                        
+
                         # Счетчик отправленных ресурсов для отладки
                         sent_count = 0
-                        
+
                         for resource in resources:
                             # Если указан namespace, фильтруем по нему
                             if namespace and resource.get("namespace") != namespace:
@@ -509,12 +536,12 @@ async def handle_websocket(websocket):
                                 "resourceType": resource_type,
                                 "resource": resource
                             }
-                            
+
                             # Отправляем сообщение
                             await websocket.send(json.dumps(initial_message))
                             stats["messages_sent"] += 1
                             sent_count += 1
-                            
+
                             # Периодически сообщаем о прогрессе для крупных объемов данных
                             if sent_count % 20 == 0:
                                 logger.info(f"WEBSOCKET_SERVER: Отправлено {sent_count} из {len(resources)} начальных ресурсов")
@@ -560,12 +587,12 @@ async def handle_websocket(websocket):
                     # Просто логируем получение pong сообщения на уровне debug
                     logger.debug(f"Получен pong с timestamp: {data.get('timestamp')}")
                     # Никаких дополнительных действий не требуется
-                
+
                 # Обработка остальных типов сообщений
                 else:
                     # Логируем неизвестный тип сообщения, но с меньшим уровнем важности
                     logger.info(f"Получен неизвестный тип сообщения: {message_type}")
-                    
+
             except Exception as e:
                 logger.error(f"Непредвиденная ошибка при обработке сообщения: {str(e)}")
                 logger.error(traceback.format_exc())
@@ -583,14 +610,14 @@ async def handle_websocket(websocket):
         except Exception:
             # Если не можем получить remote_address, используем id объекта
             connection_info = f"id:{id(websocket)}"
-        
+
         logger.info(f"Выполняется очистка для соединения: {connection_info}")
-        
+
         # Объявляем закрытие соединения и помечаем его как неактивное
         try:
             # Проверяем состояние соединения с использованием универсального метода
             is_closed = True  # По умолчанию считаем закрытым, чтобы не пытаться закрыть повторно
-            
+
             try:
                 # Проверяем сначала атрибут closed (более новые версии)
                 if hasattr(websocket, 'closed'):
@@ -605,7 +632,7 @@ async def handle_websocket(websocket):
             except Exception as e:
                 logger.debug(f"Ошибка при проверке состояния соединения в finally: {e}")
                 is_closed = True  # Предполагаем закрытое соединение при ошибке
-            
+
             # Явно закрываем соединение, если оно еще не закрыто
             if not is_closed:
                 # Используем asyncio.shield для защиты от отмены задачи
@@ -618,7 +645,7 @@ async def handle_websocket(websocket):
                     logger.debug(f"Ошибка при закрытии соединения: {close_error}")
         except Exception as e:
             logger.debug(f"Ошибка при проверке/закрытии соединения: {e}")
-            
+
         # Отменяем все подписки
         for subscription_key, unsubscribe_func in subscriptions.items():
             logger.info(f"Отмена подписки {subscription_key} при закрытии соединения")
@@ -636,7 +663,7 @@ async def handle_websocket(websocket):
         except Exception as e:
             logger.error(f"Ошибка при удалении соединения из списка: {str(e)}")
             stats["errors"] += 1
-            
+
         logger.info(f"Очистка для соединения {connection_info} завершена")
 
 
@@ -667,11 +694,11 @@ async def shutdown(signal, loop):
                     close_tasks.append(ws.close(code=1001, reason="Server shutting down"))
                 except Exception as e:
                     logger.error(f"Ошибка при закрытии соединения: {e}")
-            
+
             # Ждем закрытия всех соединений с таймаутом
             if close_tasks:
                 await asyncio.wait(close_tasks, timeout=5.0)
-                
+
             # Проверяем, остались ли открытые соединения
             remaining = len(active_connections)
             if remaining > 0:
@@ -712,19 +739,19 @@ DEFAULT_WEBSOCKET_PORT = 8765
 
 async def start_websocket_server(port=None):
     """Запуск WebSocket сервера.
-    
+
     Args:
-        port: Порт для WebSocket сервера. По умолчанию берется из переменной окружения 
+        port: Порт для WebSocket сервера. По умолчанию берется из переменной окружения
              WEBSOCKET_PORT или используется значение 8765.
     """
     global server
-    
+
     # Определяем порт
     if port is None:
         port = int(os.environ.get("WEBSOCKET_PORT", DEFAULT_WEBSOCKET_PORT))
-        
+
     logger.info(f"Запуск WebSocket сервера на порту {port}")
-    
+
     try:
         # Запуск WebSocket сервера
         server = await websockets.serve(
@@ -742,12 +769,12 @@ async def start_websocket_server(port=None):
 
         # Запуск периодического пинга всех соединений
         asyncio.create_task(periodic_ping_all_connections())
-        
+
         # Запуск задачи вывода статистики
         asyncio.create_task(print_server_stats())
-        
+
         logger.info(f"WebSocket сервер запущен на порту {port}")
-        
+
         return server
     except Exception as e:
         logger.error(f"Ошибка при запуске сервера: {str(e)}")
@@ -756,15 +783,15 @@ async def start_websocket_server(port=None):
 
 def run_server(port=None):
     """Основная функция для запуска WebSocket сервера.
-    
+
     Args:
-        port: Порт для WebSocket сервера. По умолчанию берется из переменной окружения 
+        port: Порт для WebSocket сервера. По умолчанию берется из переменной окружения
              WEBSOCKET_PORT или используется значение 8765.
     """
     # Определяем порт
     if port is None:
         port = int(os.environ.get("WEBSOCKET_PORT", DEFAULT_WEBSOCKET_PORT))
-    
+
     # Настройка асинхронного цикла событий
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -774,17 +801,17 @@ def run_server(port=None):
         loop.add_signal_handler(
             sig, lambda s=sig: asyncio.create_task(shutdown(s, loop))
         )
-        
+
     # Определяем асинхронную функцию для запуска сервера
     async def _run_server_async():
         global server
         try:
             # Запуск WebSocket сервера
             logger.info(f"Запуск WebSocket сервера на порту {port}...")
-            
+
             # Используем нашу собственную функцию для запуска сервера
             server = await start_websocket_server(port)
-            
+
             # Ожидание завершения сервера (сервер продолжает работу)
             await server.wait_closed()
 
@@ -792,7 +819,7 @@ def run_server(port=None):
             logger.error(f"Ошибка при запуске сервера: {str(e)}")
             logger.error(traceback.format_exc())
             loop.stop()
-            
+
     # Запуск асинхронной функции в цикле событий
     try:
         # Создаем и запускаем задачу старта сервера
@@ -815,7 +842,7 @@ async def print_server_stats():
     try:
         while True:
             await asyncio.sleep(30)  # Выводим статистику каждые 30 секунд
-            
+
             # Вывод статистики
             logger.info("=== Статистика WebSocket сервера ===")
             logger.info(f"Соединений всего:     {stats['connections_total']}")
@@ -839,31 +866,31 @@ async def print_server_stats():
         logger.info("Задача вывода статистики отменена")
     except Exception as e:
         logger.error(f"Ошибка в задаче вывода статистики: {e}")
-    
+
 # Функция для периодической отправки пингов всем подключенным клиентам
 async def periodic_ping_all_connections():
     """Периодически отправляет пинги всем клиентам для поддержания соединения."""
     try:
         while True:
             await asyncio.sleep(5)  # Проверка каждые 5 секунд
-            
+
             if not active_connections:
                 continue
-                
+
             logger.debug(f"Отправка ping всем {len(active_connections)} активным соединениям")
-            
+
             # Создаем копию списка, так как он может изменяться во время итерации
             connections = active_connections.copy()
-            
+
             # Отправляем ping всем активным соединениям
             from websockets.exceptions import ConnectionClosed
-            
+
             for ws in connections:
                 try:
                     # Проверяем, что соединение все еще в списке активных
                     if ws not in active_connections:
                         continue
-                        
+
                     # Проверяем, что соединение не закрыто явно
                     # Разные версии websockets используют разные атрибуты
                     try:
@@ -878,7 +905,7 @@ async def periodic_ping_all_connections():
                         elif hasattr(ws, 'state'):
                             from websockets.protocol import State
                             is_closed = ws.state != State.OPEN if hasattr(State, 'OPEN') else True
-                            
+
                         if is_closed:
                             logger.debug(f"Соединение закрыто, удаляем из активных")
                             if ws in active_connections:
@@ -890,7 +917,7 @@ async def periodic_ping_all_connections():
                         if ws in active_connections:
                             active_connections.remove(ws)
                         continue
-                        
+
                     # Отправляем application-level ping
                     timestamp = time.time()
                     await ws.send(json.dumps({
