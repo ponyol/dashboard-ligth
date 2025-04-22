@@ -23,9 +23,6 @@ def setup_signal_handlers(cleanup_func: Callable[[], None]) -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda signum, frame: cleanup_func())
 
-
-
-
 def start_app() -> Dict[str, Any]:
     """Запуск всех компонентов приложения.
 
@@ -91,7 +88,7 @@ def stop_app(components: Dict[str, Any]) -> None:
             # Если нет текущего цикла событий, создаем новый
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
         # Останавливаем наблюдение
         if loop.is_running():
             asyncio.create_task(stop_watching())

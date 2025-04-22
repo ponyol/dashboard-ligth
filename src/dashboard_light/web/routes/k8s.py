@@ -27,7 +27,6 @@ import websockets.exceptions
 
 logger = logging.getLogger(__name__)
 
-
 def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> APIRouter:
     """Создание роутера для работы с Kubernetes API.
 
@@ -92,7 +91,7 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
     @router.get("/namespaces", response_model=NamespaceList)
     async def list_namespaces(request: Request):
         """Получение списка доступных неймспейсов с учётом RBAC.
-        
+
         Примечание: Этот API эндпоинт считается устаревшим.
         Рекомендуется использовать WebSocket для получения данных в реальном времени.
         """
@@ -120,7 +119,7 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
         cluster: Optional[str] = None
     ):
         """Получение списка Deployments с учетом фильтров.
-        
+
         Примечание: Этот API эндпоинт считается устаревшим.
         Рекомендуется использовать WebSocket для получения данных в реальном времени.
         """
@@ -228,7 +227,7 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
         cluster: Optional[str] = None
     ):
         """Получение списка контроллеров (Deployments и StatefulSets) с учетом фильтров.
-        
+
         Примечание: Этот API эндпоинт считается устаревшим.
         Рекомендуется использовать WebSocket для получения данных в реальном времени.
         """
@@ -438,38 +437,6 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
             "disable_auth": os.environ.get("DISABLE_AUTH", "false").lower() in ["true", "1", "yes", "y"],
             "user_in_session": request.session.get("user") is not None
         }
-
-    # @router.websocket("/ws")
-    # async def websocket_endpoint(websocket: WebSocket):
-    #     """WebSocket эндпоинт для получения обновлений в реальном времени."""
-    #     try:
-    #         # Проверяем, запущены ли наблюдатели
-    #         active_watches = get_active_watches()
-    #         if not active_watches:
-    #             # Запускаем наблюдение за ресурсами
-    #             logger.info("Запуск наблюдателей за ресурсами при первом WebSocket подключении")
-    #             await start_watching(k8s_client)
-
-    #         # Обработка WebSocket соединения
-    #         await handle_connection(websocket, app_config)
-    #     except Exception as e:
-    #         logger.error(f"Ошибка в WebSocket обработчике: {str(e)}")
-    #         if not websocket.client_state == websockets.enums.ConnectionState.DISCONNECTED:
-    #             await websocket.close(code=1011, reason=f"Internal server error: {str(e)}")
-
-    # @router.websocket("/ws")
-    # async def websocket_endpoint(websocket: WebSocket):
-    #     """WebSocket эндпоинт для получения обновлений в реальном времени."""
-    #     # Проверяем, запущены ли наблюдатели
-    #     active_watches = get_active_watches()
-    #     if not active_watches:
-    #         # Запускаем наблюдение за ресурсами
-    #         logger.info("Запуск наблюдателей за ресурсами при первом WebSocket подключении")
-    #         background_tasks = BackgroundTasks()
-    #         background_tasks.add_task(start_watching, k8s_client)
-
-    #     # Обработка WebSocket соединения
-    #     await handle_connection(websocket, app_config)
 
     @router.post("/watch/start")
     async def start_resource_watching(
