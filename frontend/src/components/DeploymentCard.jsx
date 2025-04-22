@@ -39,17 +39,33 @@ export default function DeploymentCard({ deployment, onClick }) {
     }
   };
 
+  // Проверка наличия данных о деплойменте
+  if (!deployment || typeof deployment !== 'object') {
+    console.error('Invalid deployment data:', deployment);
+    return (
+      <div className="rounded-lg overflow-hidden shadow-sm border border-error bg-error/10 p-4 text-center">
+        <p>Invalid deployment data</p>
+      </div>
+    );
+  }
+
   // Получение стилей в зависимости от статуса
-  const { borderColor, bgColor, headerBg } = getStatusStyles(deployment.status);
+  const { borderColor, bgColor, headerBg } = getStatusStyles(deployment.status || 'error');
 
   // Обработка имени контроллера (удаление суффикса -deploy или -statefulset)
-  const displayName = deployment.name.replace(/-deploy$/, '').replace(/-statefulset$/, '');
+  const displayName = deployment.name ? deployment.name.replace(/-deploy$/, '').replace(/-statefulset$/, '') : 'Unknown';
 
   // Обработка имени контейнера (если есть, удаление суффикса -pod)
   const containerName = deployment.main_container?.name?.replace(/-pod$/, '') || 'N/A';
 
   // Тег образа
   const imageTag = deployment.main_container?.image_tag || 'N/A';
+  
+  // Проверка наличия данных о репликах
+  if (!deployment.replicas) {
+    deployment.replicas = { ready: 0, desired: 0 };
+    console.warn(`Missing replicas data for deployment: ${deployment.name}`);
+  }
 
   return (
     <div

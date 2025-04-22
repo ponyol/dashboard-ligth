@@ -17,7 +17,8 @@ export default function useWebSocket(options = {}) {
     namespaces: [],
     deployments: [],
     controllers: [],
-    pods: []
+    pods: [],
+    statefulsets: [] // Добавляем отдельный массив для statefulsets
   });
   
   // Ref для сохранения WebSocket соединения
@@ -204,6 +205,13 @@ export default function useWebSocket(options = {}) {
         return;
       }
       
+      // Адаптируем логирование для разных типов ресурсов
+      if (resourceType === 'namespaces') {
+        console.log(`Received ${eventType} event for ${resourceType}/${resource.name}`);
+      } else {
+        console.log(`Received ${eventType} event for ${resourceType}/${resource.namespace || 'global'}/${resource.name}`);
+      }
+      
       // Обновляем состояние ресурсов
       setResources(prevResources => {
         try {
@@ -213,9 +221,44 @@ export default function useWebSocket(options = {}) {
           // Определяем ключ хранения ресурса
           let typeKey = resourceType;
           
-          // Для deployments и statefulsets используем общий ключ controllers
+          // Для deployments и statefulsets используем соответствующие массивы и общий массив controllers
           if (resourceType === 'deployments' || resourceType === 'statefulsets') {
-            typeKey = 'controllers';
+            // Сохраняем в специфическом массиве для типа
+            if (resourceType === 'deployments') {
+              newResources.deployments = [...prevResources.deployments || []];
+              typeKey = 'deployments';
+            } else {
+              newResources.statefulsets = [...prevResources.statefulsets || []];
+              typeKey = 'statefulsets';
+            }
+            
+            // Также добавляем информацию о типе контроллера
+            resource.controller_type = resourceType === 'deployments' ? 'deployment' : 'statefulset';
+            
+            // После обработки события в специфическом массиве, обновляем общий массив controllers
+            setTimeout(() => {
+              // Используем setTimeout чтобы не блокировать текущий render
+              setResources(prevState => {
+                // Комбинируем deployments и statefulsets в controllers
+                const allControllers = [
+                  ...(prevState.deployments || []),
+                  ...(prevState.statefulsets || [])
+                ];
+                
+                console.log(`Combined controllers: ${allControllers.length} (${prevState.deployments?.length || 0} deployments + ${prevState.statefulsets?.length || 0} statefulsets)`);
+                
+                return {
+                  ...prevState,
+                  controllers: allControllers
+                };
+              });
+            }, 0);
+          }
+          
+          // Для namespaces проверяем наличие всех необходимых полей
+          if (resourceType === 'namespaces' && !resource.status) {
+            // Добавляем статус, если его нет
+            resource.status = resource.phase || 'Active';
           }
           
           // Проверяем, что у нас есть массив для данного типа ресурсов
@@ -226,25 +269,44 @@ export default function useWebSocket(options = {}) {
           // Копируем текущие ресурсы данного типа
           const currentResources = [...newResources[typeKey]];
           
-          // Ищем индекс существующего ресурса
-          const index = currentResources.findIndex(item => 
-            item && item.namespace === resource.namespace && item.name === resource.name
-          );
+          // Ищем индекс существующего ресурса (по-разному для разных типов ресурсов)
+          let index = -1;
+          if (resourceType === 'namespaces') {
+            // Для namespaces ищем только по имени, так как у них нет namespace
+            index = currentResources.findIndex(item => 
+              item && item.name === resource.name
+            );
+          } else {
+            // Для остальных ресурсов ищем по namespace и имени
+            index = currentResources.findIndex(item => 
+              item && item.namespace === resource.namespace && item.name === resource.name
+            );
+          }
+          
+          // Добавляем детальное логирование для ресурсов
+          if (resourceType === 'namespaces' || resourceType === 'deployments' || resourceType === 'statefulsets') {
+            const resourceName = resource.name || 'unknown';
+            const resourceNamespace = resource.namespace || 'global';
+            console.log(`WebSocket event ${eventType} for ${resourceType}/${resourceNamespace}/${resourceName}`);
+          }
           
           // Обрабатываем разные типы событий
           if (eventType === 'ADDED' || eventType === 'MODIFIED' || eventType === 'INITIAL') {
             if (index !== -1) {
               // Обновляем существующий ресурс
               currentResources[index] = resource;
+              // console.log(`Updated existing ${resourceType} resource at index ${index}`);
             } else {
               // Добавляем новый ресурс
               currentResources.push(resource);
+              console.log(`Added new ${resourceType} resource, total: ${currentResources.length}`);
             }
           }
           else if (eventType === 'DELETED') {
             if (index !== -1) {
               // Удаляем ресурс
               currentResources.splice(index, 1);
+              console.log(`Removed ${resourceType} resource at index ${index}`);
             }
           }
           else {
@@ -253,6 +315,7 @@ export default function useWebSocket(options = {}) {
           
           // Возвращаем обновленное состояние
           newResources[typeKey] = currentResources;
+          console.log(`Updated resources.${typeKey}: now contains ${currentResources.length} items`);
           return newResources;
         } catch (err) {
           console.error('Error updating resources state:', err);
@@ -296,6 +359,9 @@ export default function useWebSocket(options = {}) {
       }
       
       try {
+        // Добавляем подробное логирование
+        console.log(`Sending subscription request to WebSocket:`, subscriptionMessage);
+      
         // Отправляем запрос на подписку
         socketRef.current.send(JSON.stringify(subscriptionMessage));
         
@@ -303,7 +369,13 @@ export default function useWebSocket(options = {}) {
         const key = resourceType;
         subscriptionsRef.current.set(key, namespace);
         
+        // Выводим текущие подписки
         console.log(`Subscribed to ${resourceType} in namespace ${namespace || 'all'}`);
+        console.log(`Current active subscriptions:`, 
+          Array.from(subscriptionsRef.current.entries())
+            .map(([key, ns]) => `${key}:${ns || 'all'}`)
+            .join(', ')
+        );
         return true;
       } catch (err) {
         console.error('Error subscribing to resource:', err);

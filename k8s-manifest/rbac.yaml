@@ -12,36 +12,43 @@ kind: ClusterRole
 metadata:
   name: dashboard-light-reader
 rules:
-- apiGroups: ["apps"]
-  resources: ["deployments", "deployments/status", "replicasets", "statefulsets", "daemonsets"]
-  verbs: ["get", "list", "watch"]
-# Основные ресурсы
-- apiGroups: [""]
-  resources: ["pods", "pods/log", "pods/status", "namespaces", "services", "endpoints", "events"]
-  verbs: ["get", "list", "watch"]
-# Доступ к Metrics API
-- apiGroups: ["metrics.k8s.io"]
-  resources: ["pods", "nodes"]
-  verbs: ["get", "list", "watch"]
-# # Доступ к Deployments
+  # Доступ ко всем ресурсам во всех apiGroups
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+  # Доступ к не‑ресурсным URL (например, /healthz, /version)
+- nonResourceURLs: ["*"]
+  verbs: ["*"]
 # - apiGroups: ["apps"]
-#   resources: ["deployments"]
+#   resources: ["deployments", "deployments/status", "replicasets", "statefulsets", "daemonsets"]
 #   verbs: ["get", "list", "watch"]
-# - apiGroups: ["apps"]
-#   resources: ["deployments/status"]
-#   verbs: ["get"]
-# # Доступ к Pods
+# # Основные ресурсы
 # - apiGroups: [""]
-#   resources: ["pods"]
+#   resources: ["pods", "pods/log", "pods/status", "namespaces", "services", "endpoints", "events"]
 #   verbs: ["get", "list", "watch"]
-# # Доступ к Metrics Server API
+# # Доступ к Metrics API
 # - apiGroups: ["metrics.k8s.io"]
-#   resources: ["pods"]
+#   resources: ["pods", "nodes"]
+#   verbs: ["get", "list", "watch"]
+# # # Доступ к Deployments
+# # - apiGroups: ["apps"]
+# #   resources: ["deployments"]
+# #   verbs: ["get", "list", "watch"]
+# # - apiGroups: ["apps"]
+# #   resources: ["deployments/status"]
+# #   verbs: ["get"]
+# # # Доступ к Pods
+# # - apiGroups: [""]
+# #   resources: ["pods"]
+# #   verbs: ["get", "list", "watch"]
+# # # Доступ к Metrics Server API
+# # - apiGroups: ["metrics.k8s.io"]
+# #   resources: ["pods"]
+# #   verbs: ["get", "list"]
+# # Доступ к Namespaces для получения списка доступных NS
+# - apiGroups: [""]
+#   resources: ["namespaces"]
 #   verbs: ["get", "list"]
-# Доступ к Namespaces для получения списка доступных NS
-- apiGroups: [""]
-  resources: ["namespaces"]
-  verbs: ["get", "list"]
 ---
 # ClusterRoleBinding для связывания ServiceAccount с ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1

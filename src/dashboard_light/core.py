@@ -11,12 +11,11 @@ from dashboard_light.config import core as config
 from dashboard_light.k8s import core as k8s
 from dashboard_light.web import core as web
 from dashboard_light.k8s.watch import stop_watching
+from dashboard_light.utils.logging import configure_logging
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Настройка логирования с использованием централизованной функции
+# Уровень логирования будет взят из переменной окружения LOG_LEVEL
+configure_logging()
 logger = logging.getLogger(__name__)
 
 def setup_signal_handlers(cleanup_func: Callable[[], None]) -> None:
@@ -33,7 +32,13 @@ def start_app() -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Словарь с компонентами приложения
     """
-    logger.info("Запуск Dashboard-Light...")
+    logger.info("Запуск Dashboard-Light (HTTP API сервер)...")
+    logger.warning("=== ВАЖНО! ИНФОРМАЦИЯ О МИГРАЦИИ ===")
+    logger.warning("HTTP API сервер больше не используется для активного опроса данных Kubernetes.")
+    logger.warning("Вместо этого используется WebSocket сервер, который работает параллельно.")
+    logger.warning("Периодический опрос API Kubernetes отключен в пользу механизма Watch API.")
+    logger.warning("HTTP API сервер оставлен только для обратной совместимости и будет выдавать предупреждения.")
+    logger.warning("=== КОНЕЦ ВАЖНОГО СООБЩЕНИЯ ===")
 
     try:
         # Загрузка конфигурации

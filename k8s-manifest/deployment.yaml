@@ -31,6 +31,9 @@ spec:
         - containerPort: 3000
           name: http
           protocol: TCP
+        - containerPort: 8765
+          name: websocket
+          protocol: TCP
         env:
         - name: LOG_LEVEL
           value: "debug"
@@ -55,6 +58,10 @@ spec:
       protocol: TCP
       port: 3000
       targetPort: http
+    - name: websocket
+      protocol: TCP
+      port: 8765
+      targetPort: websocket
   selector:
     app: dashboard-light
 ---
@@ -80,29 +87,36 @@ spec:
                 name: dashboard-light-svc
                 port:
                   number: 3000
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: dashboard-light-external-ing
-  namespace: default
-  labels:
-    app.kubernetes.io/name: dashboard-light
-  annotations:
-    external-dns.alpha.kubernetes.io/hostname: k8sligth-develop.wldev.app
-spec:
-  ingressClassName: nginx
-  rules:
-    - host: k8sligth-develop.wldev.app
-      3010-tcp:
-        paths:
-          - path: /
+          - path: /ws
             pathType: Prefix
             backend:
               service:
                 name: dashboard-light-svc
                 port:
-                  number: 3000
+                  number: 8765
+# ---
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: dashboard-light-external-ing
+#   namespace: default
+#   labels:
+#     app.kubernetes.io/name: dashboard-light
+#   annotations:
+#     external-dns.alpha.kubernetes.io/hostname: k8sligth-develop.wldev.app
+# spec:
+#   ingressClassName: nginx
+#   rules:
+#     - host: k8sligth-develop.wldev.app
+#       3010-tcp:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: dashboard-light-svc
+#                 port:
+#                   number: 3000
 # ---
 # apiVersion: apps/v1
 # kind: Deployment

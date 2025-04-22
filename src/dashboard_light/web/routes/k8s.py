@@ -91,7 +91,12 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
 
     @router.get("/namespaces", response_model=NamespaceList)
     async def list_namespaces(request: Request):
-        """Получение списка доступных неймспейсов с учётом RBAC."""
+        """Получение списка доступных неймспейсов с учётом RBAC.
+        
+        Примечание: Этот API эндпоинт считается устаревшим.
+        Рекомендуется использовать WebSocket для получения данных в реальном времени.
+        """
+        logger.warning("Использование устаревшего HTTP API вместо WebSocket для получения неймспейсов")
         try:
             # Получение списка неймспейсов
             all_namespaces = namespaces.list_namespaces(k8s_client)
@@ -114,7 +119,12 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
         namespace: Optional[str] = None,
         cluster: Optional[str] = None
     ):
-        """Получение списка Deployments с учетом фильтров."""
+        """Получение списка Deployments с учетом фильтров.
+        
+        Примечание: Этот API эндпоинт считается устаревшим.
+        Рекомендуется использовать WebSocket для получения данных в реальном времени.
+        """
+        logger.warning("Использование устаревшего HTTP API вместо WebSocket для получения деплойментов")
         try:
             if namespace:
                 # Если указан конкретный неймспейс
@@ -217,7 +227,12 @@ def create_k8s_router(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) ->
         namespace: Optional[str] = None,
         cluster: Optional[str] = None
     ):
-        """Получение списка контроллеров (Deployments и StatefulSets) с учетом фильтров."""
+        """Получение списка контроллеров (Deployments и StatefulSets) с учетом фильтров.
+        
+        Примечание: Этот API эндпоинт считается устаревшим.
+        Рекомендуется использовать WebSocket для получения данных в реальном времени.
+        """
+        logger.warning("Использование устаревшего HTTP API вместо WebSocket для получения контроллеров")
         try:
             if namespace:
                 # Если указан конкретный неймспейс

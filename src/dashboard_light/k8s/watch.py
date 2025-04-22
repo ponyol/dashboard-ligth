@@ -233,6 +233,17 @@ async def _watch_resource(
             # Запуск наблюдения
             logger.info(f"Установка соединения Watch API для {resource_type}")
 
+            # Получаем последнюю версию ресурса для надежного наблюдения
+            # Это поможет избежать ошибок 410 Gone (ресурс уже не существует)
+            try:
+                # Сначала делаем list запрос для получения resourceVersion
+                list_result = list_func(timeout_seconds=1)
+                resource_version = list_result.metadata.resource_version
+                logger.info(f"Получена версия ресурса для {resource_type}: {resource_version}")
+            except Exception as e:
+                logger.warning(f"Не удалось получить resourceVersion для {resource_type}: {e}")
+                resource_version = None  # Будет использована последняя доступная версия
+            
             # Создаем очередь для передачи событий из потока в цикл событий
             import queue
             event_queue = queue.Queue()
@@ -248,17 +259,85 @@ async def _watch_resource(
                 """Функция для запуска в отдельном потоке - наблюдение за ресурсами K8s"""
                 try:
                     logger.info(f"Запущен поток наблюдения за {resource_type}")
-                    for event in w.stream(list_func):
-                        # Проверяем, нужно ли продолжать работу
-                        if not thread_running:
-                            logger.info(f"Получен сигнал остановки потока наблюдения за {resource_type}")
-                            break
-                            
-                        # Помещаем событие в очередь (обычную, не асинхронную)
-                        event_queue.put(event)
+                    
+                    # Параметры для функции stream - используем полученную версию ресурса если она есть
+                    params = {}
+                    if resource_version:
+                        # Добавляем resourceVersion если она получена
+                        params["resource_version"] = resource_version
+                    
+                    # Параметрам задаем watch=True явно для активации потока изменений
+                    params["watch"] = True
+                    
+                    # Добавляем timeout для предотвращения долгих блокирующих запросов
+                    # Значение должно быть достаточно большим, но не слишком, чтобы не блокировать
+                    params["timeout_seconds"] = 300  # 5 минут
+                    
+                    # Сначала получим текущие данные для инициализации
+                    try:
+                        logger.info(f"Получение начальных данных для {resource_type}")
+                        initial_items = list_func(_preload_content=False).items
+                        # Помещаем каждый ресурс как событие ADDED
+                        for item in initial_items:
+                            initial_event = {
+                                'type': 'ADDED',
+                                'object': item
+                            }
+                            event_queue.put(initial_event)
+                            main_loop.call_soon_threadsafe(process_queue_event.set)
+                        logger.info(f"Получено {len(initial_items)} начальных ресурсов типа {resource_type}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при получении начальных данных для {resource_type}: {e}")
+                    
+                    # Теперь запускаем поток наблюдения за изменениями
+                    logger.info(f"Запуск стриминга для {resource_type}")
+                    try:
+                        # Получаем явно метод функции для вызова
+                        list_method = list_func.__func__
+                        api = list_func.__self__
                         
-                        # Планируем обработку очереди в основном цикле
-                        main_loop.call_soon_threadsafe(process_queue_event.set)
+                        # Выводим детали метода для диагностики
+                        logger.info(f"Вызов API метода: {list_method.__name__} для {resource_type}")
+                        logger.info(f"Параметры: {params}")
+                        
+                        # Используем w.stream с API и методом
+                        for event in w.stream(list_method, api, **params):
+                            # Проверяем, нужно ли продолжать работу
+                            if not thread_running:
+                                logger.info(f"Получен сигнал остановки потока наблюдения за {resource_type}")
+                                break
+                                
+                            # Помещаем событие в очередь (обычную, не асинхронную)
+                            event_queue.put(event)
+                            
+                            # Планируем обработку очереди в основном цикле
+                            main_loop.call_soon_threadsafe(process_queue_event.set)
+                            
+                            # Добавляем вывод для отладки
+                            type_event = event.get('type', 'UNKNOWN')
+                            obj = event.get('object', None)
+                            name = obj.metadata.name if hasattr(obj, 'metadata') else 'unknown'
+                            logger.info(f"K8S_WATCH: Добавлено событие {type_event} для {resource_type}/{name} в очередь")
+                    except AttributeError:
+                        # Если метод __func__ недоступен, используем стандартный подход
+                        logger.info(f"Используем стандартный метод stream для {resource_type}")
+                        for event in w.stream(list_func, **params):
+                            # Проверяем, нужно ли продолжать работу
+                            if not thread_running:
+                                logger.info(f"Получен сигнал остановки потока наблюдения за {resource_type}")
+                                break
+                                
+                            # Помещаем событие в очередь (обычную, не асинхронную)
+                            event_queue.put(event)
+                            
+                            # Планируем обработку очереди в основном цикле
+                            main_loop.call_soon_threadsafe(process_queue_event.set)
+                            
+                            # Добавляем вывод для отладки
+                            type_event = event.get('type', 'UNKNOWN')
+                            obj = event.get('object', None)
+                            name = obj.metadata.name if hasattr(obj, 'metadata') else 'unknown'
+                            logger.info(f"K8S_WATCH: Добавлено событие {type_event} для {resource_type}/{name} в очередь")
                 except Exception as e:
                     logger.error(f"Ошибка в потоке наблюдения за {resource_type}: {e}")
                     # Сигнализируем об ошибке через очередь
@@ -290,11 +369,18 @@ async def _watch_resource(
                     await process_queue_event.wait()
                     process_queue_event.clear()
                     
+                    # Добавляем отладочную информацию
+                    queue_size = event_queue.qsize()
+                    if queue_size > 0:
+                        logger.info(f"K8S_WATCH: Обработка {queue_size} событий из очереди для {resource_type}")
+                    
                     # Обрабатываем все события из очереди
+                    processed_count = 0
                     while not event_queue.empty():
                         try:
                             # Получаем событие из обычной очереди (не асинхронной)
                             event = event_queue.get_nowait()
+                            processed_count += 1
                             
                             # Если получили None, значит поток завершился
                             if event is None:
@@ -303,18 +389,37 @@ async def _watch_resource(
                                 thread_running = False
                                 break
                             
+                            # Проверка на корректность события
+                            if not isinstance(event, dict) or 'type' not in event or 'object' not in event:
+                                logger.warning(f"K8S_WATCH: Получено некорректное событие: {event}")
+                                continue
+                            
                             # Получение типа события и ресурса
                             event_type = event['type']  # ADDED, MODIFIED, DELETED
                             resource = event['object']
 
+                            # Логируем информацию о событии
+                            name = resource.metadata.name if hasattr(resource, 'metadata') and hasattr(resource.metadata, 'name') else "unknown"
+                            namespace = resource.metadata.namespace if hasattr(resource, 'metadata') and hasattr(resource.metadata, 'namespace') else ""
+                            logger.info(f"K8S_WATCH: Получено событие {event_type} для {resource_type}/{namespace}/{name}")
+
                             # Преобразование ресурса в словарь
                             resource_dict = _convert_to_dict(resource_type, resource)
 
+                            # Вывод ключевой информации о ресурсе для отладки
+                            logger.info(f"K8S_WATCH: Преобразовано в словарь, имя={resource_dict.get('name')}, namespace={resource_dict.get('namespace', '')}")
+                            
                             # Обновление состояния через менеджер состояния
                             await update_resource_state(event_type, resource_type, resource_dict)
 
                             # Отмечаем, что событие обработано
                             event_queue.task_done()
+                            
+                            # Выводим информацию о том, что событие полностью обработано
+                            if processed_count % 10 == 0 or queue_size - processed_count == 0:
+                                logger.info(f"K8S_WATCH: Обработано {processed_count}/{queue_size} событий для {resource_type}")
+                                # Даем шанс другим асинхронным задачам выполниться
+                                await asyncio.sleep(0.01)
                         except queue.Empty:
                             # Очередь пуста, выходим из внутреннего цикла
                             break
@@ -340,11 +445,14 @@ async def _watch_resource(
             retry_delay = RETRY_INITIAL_DELAY
 
         except ApiException as e:
-            logger.error(f"API ошибка при наблюдении за {resource_type}: {e}")
+            error_msg = str(e)
             if e.status == 410:  # Gone, требуется повторное подключение с новой версией
-                logger.info(f"Ресурс версии больше нет, переподключение для {resource_type}")
-                retry_delay = RETRY_INITIAL_DELAY
+                logger.warning(f"Ошибка 410 при наблюдении за {resource_type}: {error_msg}")
+                logger.info(f"Старая версия ресурса больше недоступна, переподключение с новой версией для {resource_type}")
+                # При ошибке 410 начинаем с минимальной задержки для быстрого восстановления 
+                retry_delay = 0.1  # Практически мгновенное переподключение
             else:
+                logger.error(f"API ошибка при наблюдении за {resource_type} (код {e.status}): {error_msg}")
                 retry_delay = min(retry_delay * RETRY_BACKOFF_FACTOR, RETRY_MAX_DELAY)
         except Exception as e:
             logger.error(f"Ошибка при наблюдении за {resource_type}: {e}")
@@ -369,22 +477,62 @@ async def start_watching(
         Dict[ResourceType, WatchTask]: Словарь задач наблюдения
     """
     global _watch_tasks
+    
+    logger.info(f"K8S_WATCH: Запуск наблюдения за ресурсами типов: {resource_types}")
+    
+    # Проверяем наличие необходимых API клиентов
+    if not k8s_client:
+        logger.error("K8S_WATCH: K8s клиент не инициализирован")
+        return {}
+        
+    if "core_v1_api" not in k8s_client or "apps_v1_api" not in k8s_client:
+        logger.error(f"K8S_WATCH: K8s клиент не содержит необходимые API. Доступные ключи: {list(k8s_client.keys())}")
+        return {}
+        
+    # Проверяем доступность API с небольшим запросом
+    try:
+        if 'namespaces' in resource_types:
+            core_v1_api = k8s_client.get("core_v1_api")
+            test_result = core_v1_api.list_namespace(limit=1)
+            logger.info(f"K8S_WATCH: Тестовый запрос к API успешен. Найдено {len(test_result.items)} неймспейсов.")
+        elif 'deployments' in resource_types:
+            apps_v1_api = k8s_client.get("apps_v1_api")
+            test_result = apps_v1_api.list_deployment_for_all_namespaces(limit=1)
+            logger.info(f"K8S_WATCH: Тестовый запрос к API успешен. Найдено {len(test_result.items)} деплойментов.")
+    except Exception as e:
+        logger.error(f"K8S_WATCH: Тестовый запрос к API завершился ошибкой: {e}")
+        logger.error("K8S_WATCH: Проверьте подключение к кластеру Kubernetes и права доступа")
+        return {}
 
     # Остановка существующих задач
     await stop_watching()
+    logger.info("K8S_WATCH: Предыдущие задачи наблюдения остановлены")
 
     # Запуск новых задач
     for resource_type in resource_types:
         if resource_type in _resource_functions:
-            task = asyncio.create_task(
-                _watch_resource(k8s_client, resource_type),
-                name=f"watch_{resource_type}"
-            )
-            _watch_tasks[resource_type] = task
-            logger.info(f"Создана задача наблюдения за {resource_type}")
-        else:
-            logger.warning(f"Неизвестный тип ресурса: {resource_type}")
-
+            try:
+                task = asyncio.create_task(
+                    _watch_resource(k8s_client, resource_type),
+                    name=f"watch_{resource_type}"
+                )
+                _watch_tasks[resource_type] = task
+                logger.info(f"K8S_WATCH: Создана и запущена задача наблюдения за {resource_type}")
+            except Exception as e:
+                logger.error(f"K8S_WATCH: Ошибка при создании задачи наблюдения за {resource_type}: {e}")
+    
+    # Даем немного времени на инициализацию задач
+    await asyncio.sleep(0.5)
+    
+    # Проверяем, что задачи запущены и не завершились с ошибкой
+    active_tasks = {rt: task for rt, task in _watch_tasks.items() 
+                    if not task.done() or (task.done() and not task.exception())}
+    
+    if not active_tasks:
+        logger.error("K8S_WATCH: Не удалось запустить ни одной задачи наблюдения")
+    else:
+        logger.info(f"K8S_WATCH: Успешно запущены задачи наблюдения: {list(active_tasks.keys())}")
+        
     return _watch_tasks
 
 async def stop_watching() -> None:

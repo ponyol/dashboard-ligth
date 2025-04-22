@@ -43,8 +43,19 @@ def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAP
     # Создание FastAPI приложения
     app = FastAPI(
         title="Dashboard Light",
-        description="Система мониторинга EKS Deployments & Pods",
-        version="0.1.0",
+        description="""Система мониторинга EKS Deployments & Pods
+
+## ВАЖНОЕ ПРИМЕЧАНИЕ О DEPRECATION
+**ВНИМАНИЕ:** REST API больше не является основным способом получения данных. 
+Все HTTP API эндпоинты считаются устаревшими.
+
+Для получения данных в реальном времени используйте WebSocket подключение 
+на эндпоинте: `/api/k8s/ws`
+
+WebSocket-сервер обеспечивает более эффективный способ доставки обновлений, 
+используя Watch API Kubernetes для получения мгновенных обновлений ресурсов.
+        """,
+        version="0.2.0",
     )
 
     # Настройка CORS
