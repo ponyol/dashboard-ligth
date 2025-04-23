@@ -83,37 +83,37 @@ def create_app(app_config: Dict[str, Any], k8s_client: Dict[str, Any]) -> FastAP
         raise ValueError("Основной роутер приложения не был инициализирован корректно")
 
     # Добавление хука запуска для ОТЛОЖЕННОГО ЗАПУСКА ТЯЖЕЛЫХ СЕРВИСОВ
-    @app.on_event("startup")
-    async def startup_event():
-        app.state.config = app_config
-        app.state.k8s_client = k8s_client
+    # @app.on_event("startup")
+    # async def startup_event():
+    #     app.state.config = app_config
+    #     app.state.k8s_client = k8s_client
 
-        # Запуск K8s наблюдателей АСИНХРОННО ПОСЛЕ старта приложения
-        async def delayed_k8s_watcher_start():
-            try:
-                # Подождем 1 секунду, чтобы приложение успело ответить на первые запросы
-                await asyncio.sleep(1)
+    #     # Запуск K8s наблюдателей АСИНХРОННО ПОСЛЕ старта приложения
+    #     async def delayed_k8s_watcher_start():
+    #         try:
+    #             # Подождем 1 секунду, чтобы приложение успело ответить на первые запросы
+    #             await asyncio.sleep(1)
 
-                # Здесь асинхронно запускаем наблюдение за ресурсами
-                from dashboard_light.k8s.watch import start_watching
-                await start_watching(k8s_client, ['deployments', 'pods', 'namespaces', 'statefulsets'])
-                logger.info("K8s наблюдатели запущены асинхронно ПОСЛЕ старта приложения")
-            except Exception as e:
-                logger.error(f"Ошибка при асинхронном запуске K8s наблюдателей: {e}")
+    #             # Здесь асинхронно запускаем наблюдение за ресурсами
+    #             from dashboard_light.k8s.watch import start_watching
+    #             await start_watching(k8s_client, ['deployments', 'pods', 'namespaces', 'statefulsets'])
+    #             logger.info("K8s наблюдатели запущены асинхронно ПОСЛЕ старта приложения")
+    #         except Exception as e:
+    #             logger.error(f"Ошибка при асинхронном запуске K8s наблюдателей: {e}")
 
-        # Запускаем наблюдателей в фоновом режиме
-        asyncio.create_task(delayed_k8s_watcher_start())
-        logger.info("Запланирован отложенный запуск K8s наблюдателей")
+    #     # Запускаем наблюдателей в фоновом режиме
+    #     asyncio.create_task(delayed_k8s_watcher_start())
+    #     logger.info("Запланирован отложенный запуск K8s наблюдателей")
 
-        logger.info("FastAPI приложение запущено")
+    #     logger.info("FastAPI приложение запущено")
 
-    # Добавление хука остановки
-    @app.on_event("shutdown")
-    async def shutdown_event():
-        # Остановка всех задач наблюдения
-        from dashboard_light.k8s.watch import stop_watching
-        await stop_watching()
-        logger.info("FastAPI приложение остановлено")
+    # # Добавление хука остановки
+    # @app.on_event("shutdown")
+    # async def shutdown_event():
+    #     # Остановка всех задач наблюдения
+    #     from dashboard_light.k8s.watch import stop_watching
+    #     await stop_watching()
+    #     logger.info("FastAPI приложение остановлено")
 
     return app
 
