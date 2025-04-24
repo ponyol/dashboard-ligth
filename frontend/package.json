@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "build:devdeploy": "vite build && cp -r dist/* ../resources/public/ && node ../resources/generate-env-config.js development ../resources/public/env-config.js",
     "build:deploy": "vite build && cp -r dist/* ../resources/public/ && node ../resources/generate-env-config.js production ../resources/public/env-config.js"
   },
   "dependencies": {

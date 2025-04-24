@@ -59,12 +59,12 @@ export default function Dashboard() {
   // Подписка на обновления неймспейсов через WebSocket - не зависит от выбранного namespace
   useEffect(() => {
     if (wsConnected) {
-      console.log('Subscribing to namespaces updates via WebSocket');
+      // console.log('Subscribing to namespaces updates via WebSocket');
       subscribe('namespaces', null);
 
       // Очистка при размонтировании
       return () => {
-        console.log('Unsubscribing from namespaces updates');
+        // console.log('Unsubscribing from namespaces updates');
         unsubscribe('namespaces');
       };
     }
@@ -84,8 +84,8 @@ export default function Dashboard() {
       subscribe('statefulsets', null);
       subscribe('pods', null);
 
-      console.log(`Subscribed to controllers WebSocket updates for all namespaces`);
-      console.log(`Current namespace filter (client-side): ${selectedNamespace || 'all'}`);
+      // console.log(`Subscribed to controllers WebSocket updates for all namespaces`);
+      // console.log(`Current namespace filter (client-side): ${selectedNamespace || 'all'}`);
     }
 
     // Очистка при размонтировании
@@ -149,40 +149,40 @@ export default function Dashboard() {
   const controllers = controllersToShow.sort((a, b) => a.name.localeCompare(b.name));
 
   // Debugging info для отслеживания обновлений данных
-  useEffect(() => {
-    console.log(`WebSocket resources updated:
-      Namespaces: ${wsResources.namespaces?.length || 0}
-      Controllers (total): ${wsResources.controllers?.length || 0}
-      Controllers (filtered): ${controllers.length}
-    `);
+  // useEffect(() => {
+  //   console.log(`WebSocket resources updated:
+  //     Namespaces: ${wsResources.namespaces?.length || 0}
+  //     Controllers (total): ${wsResources.controllers?.length || 0}
+  //     Controllers (filtered): ${controllers.length}
+  //   `);
 
-    // Выводим HTTP данные для сравнения
-    console.log(`HTTP API data:
-      Namespaces: ${httpNamespaces?.length || 0}
-      Controllers: ${httpControllers?.length || 0}
-    `);
+  //   // Выводим HTTP данные для сравнения
+  //   console.log(`HTTP API data:
+  //     Namespaces: ${httpNamespaces?.length || 0}
+  //     Controllers: ${httpControllers?.length || 0}
+  //   `);
 
-    // Вывод информации о фильтрации
-    if (selectedNamespace) {
-      console.log(`Filtering by namespace: ${selectedNamespace}`);
-      console.log(`Controllers after filtering: ${controllers.length}`);
-    }
+  //   // Вывод информации о фильтрации
+  //   if (selectedNamespace) {
+  //     console.log(`Filtering by namespace: ${selectedNamespace}`);
+  //     console.log(`Controllers after filtering: ${controllers.length}`);
+  //   }
 
     // Добавляем отдельную функцию для отчета по статистике
     try {
-      console.log("=== Namespace Statistics ===");
+      // console.log("=== Namespace Statistics ===");
 
       // Безопасно проверяем наличие данных
       const hasNamespaces = Array.isArray(wsResources.namespaces) || Array.isArray(httpNamespaces);
       const hasControllers = Array.isArray(wsResources.controllers) || Array.isArray(httpControllers);
 
-      if (!hasNamespaces) {
-        console.log("No namespaces available to calculate stats");
-      }
+      // if (!hasNamespaces) {
+      //   console.log("No namespaces available to calculate stats");
+      // }
 
-      if (!hasControllers) {
-        console.log("No controllers available to calculate namespace stats");
-      }
+      // if (!hasControllers) {
+      //   console.log("No controllers available to calculate namespace stats");
+      // }
 
       // Только если есть и неймспейсы и контроллеры, выполняем анализ
       if (hasNamespaces && hasControllers) {
@@ -195,7 +195,7 @@ export default function Dashboard() {
           ? wsResources.controllers
           : (Array.isArray(httpControllers) ? httpControllers : []);
 
-        console.log(`Analyzing ${namespacesToAnalyze.length} namespaces and ${controllerData.length} controllers`);
+        // console.log(`Analyzing ${namespacesToAnalyze.length} namespaces and ${controllerData.length} controllers`);
 
         // Создаем карту для группировки контроллеров по неймспейсам
         const namespaceStats = {};
@@ -210,8 +210,8 @@ export default function Dashboard() {
         });
 
         // Дополнительный вывод для отладки структуры данных
-        console.log("Sample namespace object:", namespacesToAnalyze[0]);
-        console.log("Sample controller object:", controllerData[0]);
+        // console.log("Sample namespace object:", namespacesToAnalyze[0]);
+        // console.log("Sample controller object:", controllerData[0]);
 
         // Подсчитываем контроллеры для каждого неймспейса
         controllerData.forEach(controller => {
@@ -229,7 +229,7 @@ export default function Dashboard() {
         });
 
         // Выводим статистику для каждого неймспейса
-        console.log("Namespace statistics (name - controllers - pods):");
+        // console.log("Namespace statistics (name - controllers - pods):");
 
         // Подсчитаем общее количество контроллеров и подов
         let totalControllers = 0;
@@ -241,25 +241,25 @@ export default function Dashboard() {
           totalPods += stats.pods;
 
           // Выводим только непустые неймспейсы для уменьшения шума
-          if (stats.controllers > 0 || stats.pods > 0) {
-            console.log(`${namespace} - ${stats.controllers} - ${stats.pods}`);
-          }
+          // if (stats.controllers > 0 || stats.pods > 0) {
+          //   console.log(`${namespace} - ${stats.controllers} - ${stats.pods}`);
+          // }
         });
 
         // Выводим суммарную статистику
-        console.log(`TOTAL - ${totalControllers} controllers - ${totalPods} pods`);
+        // console.log(`TOTAL - ${totalControllers} controllers - ${totalPods} pods`);
 
         // Проверяем текущий выбранный неймспейс
-        if (selectedNamespace) {
-          console.log(`Selected namespace: ${selectedNamespace}`);
-          console.log(`Controllers in selected namespace: ${namespaceStats[selectedNamespace]?.controllers || 0}`);
-          console.log(`Pods in selected namespace: ${namespaceStats[selectedNamespace]?.pods || 0}`);
-        } else {
-          console.log("No namespace selected (showing all namespaces)");
-        }
+        // if (selectedNamespace) {
+        //   console.log(`Selected namespace: ${selectedNamespace}`);
+        //   console.log(`Controllers in selected namespace: ${namespaceStats[selectedNamespace]?.controllers || 0}`);
+        //   console.log(`Pods in selected namespace: ${namespaceStats[selectedNamespace]?.pods || 0}`);
+        // } else {
+        //   console.log("No namespace selected (showing all namespaces)");
+        // }
       }
 
-      console.log("=== End of Namespace Statistics ===");
+      // console.log("=== End of Namespace Statistics ===");
     } catch (error) {
       console.error("Error generating namespace statistics:", error);
     }

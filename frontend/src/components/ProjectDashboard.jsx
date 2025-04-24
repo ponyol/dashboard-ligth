@@ -43,7 +43,7 @@ export default function ProjectDashboard() {
     unsubscribe
   } = useWebSocket({
     onConnect: () => {
-      console.log('WebSocket connected, subscribing to resources...');
+      // console.log('WebSocket connected, subscribing to resources...');
       setError(null);
       // Подписываемся на необходимые ресурсы при подключении
       if (typeof subscribe === 'function') {
@@ -55,7 +55,7 @@ export default function ProjectDashboard() {
       setIsLoading(false);
     },
     onDisconnect: () => {
-      console.log('WebSocket disconnected');
+      // console.log('WebSocket disconnected');
       setIsLoading(true);
     },
     onError: (err) => {
@@ -146,14 +146,8 @@ export default function ProjectDashboard() {
     }
   }, [isConnected, connect, subscribe, selectedNamespace]);
 
-  // Если идет загрузка и еще нет данных, показываем индикатор загрузки
-  if (isLoading && filteredControllers.length === 0) {
-    return (
-      <div className="p-2 w-full overflow-x-hidden">
-        <Loading text="Loading controllers..." />
-      </div>
-    );
-  }
+  // Убираем показ индикатора загрузки при начальной загрузке страницы
+  // Пользователь будет видеть WebSocket статус и пустую страницу до загрузки данных
 
   // Если есть ошибка и нет данных, показываем сообщение об ошибке
   if ((error || lastError) && filteredControllers.length === 0) {

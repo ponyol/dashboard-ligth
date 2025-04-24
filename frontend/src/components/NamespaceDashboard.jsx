@@ -31,7 +31,7 @@ export default function NamespaceDashboard() {
     subscribe,
   } = useWebSocket({
     onConnect: () => {
-      console.log('WebSocket connected, subscribing to resources...');
+      // console.log('WebSocket connected, subscribing to resources...');
       setError(null);
       // Подписываемся на необходимые ресурсы при подключении
       subscribe('namespaces');
@@ -41,7 +41,7 @@ export default function NamespaceDashboard() {
       setIsLoading(false);
     },
     onDisconnect: () => {
-      console.log('WebSocket disconnected');
+      // console.log('WebSocket disconnected');
       setIsLoading(true);
     },
     onError: (err) => {
@@ -74,8 +74,9 @@ export default function NamespaceDashboard() {
       return [];
     }
 
-    console.log(`Calculating stats for ${resources.namespaces.length} namespaces`);
-    console.log(`Have ${resources.controllers?.length || 0} controllers available for stats calculation`);
+    // console.log(`Calculating stats for ${resources.namespaces.length} namespaces`);
+    // console.log(`Have ${resources.controllers?.length || 0} controllers available for stats calculation`);
+    // console.log('Pods available:', resources.pods?.length || 0);
 
     const stats = {};
 
@@ -89,15 +90,68 @@ export default function NamespaceDashboard() {
       };
     });
 
+    // Подготовка объекта для привязки подов к контроллерам
+    const podsByController = {};
+
+    // Группируем поды по контроллеру
+    if (resources.pods && resources.pods.length > 0) {
+      // Выведем пример данных пода для отладки и вывода всей структуры
+      if (resources.pods.length > 0) {
+        // console.log("Sample pod data:", JSON.stringify(resources.pods[0], null, 2));
+        // console.log(`Available pods: ${resources.pods.length}`);
+        // Выведем первые 5 имен подов для проверки
+        const samplePodNames = resources.pods.slice(0, 5).map(p => p.name).join(", ");
+        // console.log(`Sample pod names: ${samplePodNames}`);
+      }
+
+      resources.pods.forEach(pod => {
+        if (pod && pod.namespace) {
+          // Находим владельца пода разными способами - в разных реализациях Kubernetes API поля могут отличаться
+          const owner = pod.owner || pod.controller_name ||
+                        (pod.owner_references && pod.owner_references.length > 0 && pod.owner_references[0].name);
+
+          if (owner) {
+            const key = `${pod.namespace}/${owner}`;
+            if (!podsByController[key]) {
+              podsByController[key] = [];
+            }
+
+            // Убедимся, что у пода есть статус
+            if (!pod.status) {
+              pod.status = pod.phase || 'unknown';
+            }
+
+            podsByController[key].push(pod);
+            // console.log(`Pod ${pod.name} added to controller ${owner} in namespace ${pod.namespace}`);
+          }
+          //   else {
+          //   console.log(`Pod ${pod.name} has no owner information, skipping`);
+          // }
+        }
+      });
+
+      // console.log(`Grouped ${Object.keys(podsByController).length} pod groups by controller`);
+    }
+
     // Проверяем, что controllers определен
     if (resources.controllers && resources.controllers.length > 0) {
       // Логируем примеры контроллеров для проверки структуры данных
-      console.log("Sample controller data:", resources.controllers[0]);
+      // console.log("Sample controller data:", resources.controllers[0]);
 
       // Сначала соберем данные по контроллерам для каждого неймспейса
       resources.controllers.forEach(controller => {
         if (controller && controller.namespace && stats[controller.namespace]) {
           stats[controller.namespace].deploymentCount += 1;
+
+          // Добавляем поды к контроллеру
+          const controllerKey = `${controller.namespace}/${controller.name}`;
+          if (podsByController[controllerKey]) {
+            controller.pods = podsByController[controllerKey];
+            console.log(`Added ${controller.pods.length} pods to ${controller.name} in ${controller.namespace}`);
+          } else {
+            controller.pods = [];
+          }
+
           stats[controller.namespace].controllers.push(controller);
         } else {
           console.log(`Skipping controller with invalid namespace: ${controller?.namespace}`);
@@ -116,10 +170,10 @@ export default function NamespaceDashboard() {
             nsStats.podCount += readyReplicas;
 
             // Также можно проверить поды напрямую, если они доступны
-            if (controller.pods && Array.isArray(controller.pods)) {
-              // Логирование для отладки
-              console.log(`  - Controller ${controller.name} in ${controller.namespace} has ${controller.pods.length} pods directly`);
-            }
+            // if (controller.pods && Array.isArray(controller.pods)) {
+            //   // Логирование для отладки
+            //   console.log(`  - Controller ${controller.name} in ${controller.namespace} has ${controller.pods.length} pods directly`);
+            // }
           }
         });
 
@@ -166,14 +220,8 @@ export default function NamespaceDashboard() {
   // Расчет статистики по неймспейсам
   const namespaceStats = sortNamespaces(getNamespaceStats());
 
-  // Если идет загрузка и еще нет данных, показываем индикатор загрузки
-  if ((isLoading || isConnecting) && namespaceStats.length === 0) {
-    return (
-      <div className="p-2 w-full overflow-x-hidden">
-        <Loading text="Loading namespace data..." />
-      </div>
-    );
-  }
+  // Убираем показ индикатора загрузки при начальной загрузке страницы
+  // Пользователь будет видеть WebSocket статус и пустую страницу до загрузки данных
 
   // Если есть ошибка и нет данных, показываем сообщение об ошибке
   if ((error || lastError) && namespaceStats.length === 0) {
@@ -305,6 +353,7 @@ export default function NamespaceDashboard() {
                         deploymentCount={stats.deploymentCount}
                         podCount={stats.podCount}
                         compact={false} // Всегда показываем полный вид
+                        controllers={stats.controllers} // Передаем список контроллеров и их подов
                       />
                     </div>
                   ))

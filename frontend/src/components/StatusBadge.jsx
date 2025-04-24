@@ -130,7 +130,21 @@ export default function StatusBadge({ status, type = 'deployment' }) {
   };
 
   // Получение конфигурации для конкретного статуса
-  const config = statusConfig[type]?.[status] || {
+  // Нормализуем статус для подов (приводим к lowercase и обрабатываем типичные варианты статусов Kubernetes)
+  let normalizedStatus = status?.toLowerCase() || 'unknown';
+
+  if (type === 'pod') {
+    // Преобразуем все возможные статусы подов в стандартизированные
+    if (normalizedStatus.includes('run')) normalizedStatus = 'running';
+    else if (normalizedStatus.includes('pend')) normalizedStatus = 'pending';
+    else if (normalizedStatus.includes('succ')) normalizedStatus = 'succeeded';
+    else if (normalizedStatus.includes('fail') || normalizedStatus.includes('crash') || normalizedStatus.includes('error')) normalizedStatus = 'failed';
+    else if (normalizedStatus.includes('term')) normalizedStatus = 'terminating';
+
+    // console.log(`Original pod status: ${status} => normalized: ${normalizedStatus}`);
+  }
+
+  const config = statusConfig[type]?.[normalizedStatus] || {
     color: 'bg-gray-500 text-white',
     label: status || 'Unknown',
     icon: (

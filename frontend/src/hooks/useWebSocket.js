@@ -80,7 +80,7 @@ export default function useWebSocket(options = {}) {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.debug('Received WebSocket message:', data.type);
+          // console.debug('Received WebSocket message:', data.type);
 
           // Обработка разных типов сообщений
           const messageType = data.type || '';
@@ -92,7 +92,7 @@ export default function useWebSocket(options = {}) {
             const resourceType = data.resourceType;
             const progress = data.progress || 0;
 
-            console.log(`Получен пакет ${data.batchNumber}/${data.totalBatches} для ${resourceType} (${progress}%)`);
+            // console.log(`Получен пакет ${data.batchNumber}/${data.totalBatches} для ${resourceType} (${progress}%)`);
 
             // Добавляем ресурсы из пакета в состояние
             setResources(prevResources => {
@@ -129,26 +129,26 @@ export default function useWebSocket(options = {}) {
               return newResources;
             });
           }
-          else if (messageType === 'connection') {
-            // Сообщение при установке соединения
-            console.log('Connection message received:', data.message);
-          }
+          // else if (messageType === 'connection') {
+          //   // Сообщение при установке соединения
+          //   console.log('Connection message received:', data.message);
+          // }
           else if (messageType === 'resource') {
             // Обновление ресурса
             handleResourceUpdate(data);
           }
-          else if (messageType === 'initial_state_complete') {
-            // Завершение передачи начального состояния
-            console.log(`Initial state complete for ${data.resourceType}. Received ${data.count} items.`);
-          }
-          else if (messageType === 'subscribed') {
-            // Подтверждение подписки
-            console.log(`Successfully subscribed to ${data.resourceType} in namespace ${data.namespace || 'all'}`);
-          }
-          else if (messageType === 'unsubscribed') {
-            // Подтверждение отписки
-            console.log(`Successfully unsubscribed from ${data.resourceType} in namespace ${data.namespace || 'all'}`);
-          }
+          // else if (messageType === 'initial_state_complete') {
+          //   // Завершение передачи начального состояния
+          //   console.log(`Initial state complete for ${data.resourceType}. Received ${data.count} items.`);
+          // }
+          // else if (messageType === 'subscribed') {
+          //   // Подтверждение подписки
+          //   console.log(`Successfully subscribed to ${data.resourceType} in namespace ${data.namespace || 'all'}`);
+          // }
+          // else if (messageType === 'unsubscribed') {
+          //   // Подтверждение отписки
+          //   console.log(`Successfully unsubscribed from ${data.resourceType} in namespace ${data.namespace || 'all'}`);
+          // }
           else if (messageType === 'error') {
             // Ошибка
             console.error('WebSocket error message:', data.message);
@@ -250,11 +250,11 @@ export default function useWebSocket(options = {}) {
       }
 
       // Адаптируем логирование для разных типов ресурсов
-      if (resourceType === 'namespaces') {
-        console.log(`Received ${eventType} event for ${resourceType}/${resource.name}`);
-      } else {
-        console.log(`Received ${eventType} event for ${resourceType}/${resource.namespace || 'global'}/${resource.name}`);
-      }
+      // if (resourceType === 'namespaces') {
+      //   console.log(`Received ${eventType} event for ${resourceType}/${resource.name}`);
+      // } else {
+      //   console.log(`Received ${eventType} event for ${resourceType}/${resource.namespace || 'global'}/${resource.name}`);
+      // }
 
       // Обновляем состояние ресурсов
       setResources(prevResources => {
@@ -331,7 +331,7 @@ export default function useWebSocket(options = {}) {
           if (resourceType === 'namespaces' || resourceType === 'deployments' || resourceType === 'statefulsets') {
             const resourceName = resource.name || 'unknown';
             const resourceNamespace = resource.namespace || 'global';
-            console.log(`WebSocket event ${eventType} for ${resourceType}/${resourceNamespace}/${resourceName}`);
+            // console.log(`WebSocket event ${eventType} for ${resourceType}/${resourceNamespace}/${resourceName}`);
           }
 
           // Обрабатываем разные типы событий
@@ -343,7 +343,7 @@ export default function useWebSocket(options = {}) {
             } else {
               // Добавляем новый ресурс
               currentResources.push(resource);
-              console.log(`Added new ${resourceType} resource, total: ${currentResources.length}`);
+              // console.log(`Added new ${resourceType} resource, total: ${currentResources.length}`);
             }
           }
           else if (eventType === 'DELETED') {
@@ -359,7 +359,7 @@ export default function useWebSocket(options = {}) {
 
           // Возвращаем обновленное состояние
           newResources[typeKey] = currentResources;
-          console.log(`Updated resources.${typeKey}: now contains ${currentResources.length} items`);
+          // console.log(`Updated resources.${typeKey}: now contains ${currentResources.length} items`);
           return newResources;
         } catch (err) {
           console.error('Error updating resources state:', err);

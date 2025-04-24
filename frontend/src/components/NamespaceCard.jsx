@@ -2,11 +2,13 @@
 /**
  * Компонент карточки неймспейса
  */
-export default function NamespaceCard({ namespace, deploymentCount, podCount, onClick, compact = false }) {
+import StatusBadge from './StatusBadge';
+
+export default function NamespaceCard({ namespace, deploymentCount, podCount, onClick, compact = false, controllers = [] }) {
   // Определение стилей карточки в зависимости от количества подов и деплойментов
   const getStatusStyles = () => {
-    console.log(`Namespace card: deploymentCount=${deploymentCount}, podCount=${podCount}`);
-    
+    // console.log(`Namespace card: deploymentCount=${deploymentCount}, podCount=${podCount}`);
+
     if (deploymentCount === 0) {
       // Серый цвет, если нет деплойментов
       return {
@@ -48,7 +50,7 @@ export default function NamespaceCard({ namespace, deploymentCount, podCount, on
   // Если включен компактный режим и статус "healthy", показываем компактную версию
   if (compact && status === 'healthy') {
     return (
-      <div 
+      <div
         className={`rounded-lg overflow-hidden shadow-sm border ${borderColor} transition-all duration-300 ${bgColor} hover:bg-healthy/20 cursor-pointer`}
         onClick={() => {
           // Тут можно добавить обработчик клика для раскрытия карточки если нужно
@@ -122,8 +124,8 @@ export default function NamespaceCard({ namespace, deploymentCount, podCount, on
                 }`}
                 style={{
                   width: `${
-                    deploymentCount === 0 
-                      ? 0 
+                    deploymentCount === 0
+                      ? 0
                       : Math.min((podCount / deploymentCount) * 100, 100)
                   }%`,
                   minWidth: podCount > 0 ? '5%' : '0%' // Минимальная ширина для видимости
@@ -131,6 +133,112 @@ export default function NamespaceCard({ namespace, deploymentCount, podCount, on
               ></div>
             </div>
           </div>
+
+          {/* Информация о статусе подов для прогрессирующих неймспейсов */}
+          {status === 'progressing' && controllers && controllers.length > 0 && (
+            <div className="col-span-2 mt-3">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Pod Status
+              </h4>
+
+              {/* НОВЫЙ ПОДХОД: Собираем все поды со всех контроллеров в один список */}
+              {(() => {
+                // Функция для определения приоритета пода
+                const getStatusPriority = (pod) => {
+                  // Получаем статус пода, приводим к нижнему регистру для единообразия
+                  const status = (pod?.status || pod?.phase || '').toLowerCase();
+
+                  // Группа 1 - Inactive (неактивные)
+                  if (status.includes('term') || status.includes('fail') ||
+                      status.includes('error') || status === 'unknown' ||
+                      status === 'inactive') {
+                    return 1;
+                  }
+
+                  // Группа 2 - Pending (ожидающие)
+                  if (status.includes('pend') || status.includes('wait') ||
+                      status.includes('init') || status.includes('creating')) {
+                    return 2;
+                  }
+
+                  // Группа 3 - все остальные (запущенные, успешные и т.д.)
+                  return 3;
+                };
+                // Структура данных для группировки подов по контроллерам
+                const controllerData = controllers.map(controller => {
+                  // Получаем информацию о количестве под из поля replicas
+                  const readyReplicas = controller?.replicas?.ready || 0;
+                  const desiredReplicas = controller?.replicas?.desired || 0;
+
+                  // Имя контроллера (без суффиксов)
+                  const controllerName = controller?.name?.replace(/-deploy$/, '').replace(/-statefulset$/, '') || 'Неизвестный контроллер';
+
+                  // Генерируем список подов
+                  let podsList = [];
+
+                  if (controller?.pods && controller.pods.length > 0) {
+                    // Используем реальные данные о подах если они есть
+                    podsList = controller.pods;
+                  } else if (desiredReplicas > 0) {
+                    // Генерируем искусственные записи о подах на основе replicas
+                    for (let i = 0; i < desiredReplicas; i++) {
+                      const isReady = i < readyReplicas;
+                      podsList.push({
+                        name: `${controller.name}-pod-${i + 1}`,
+                        status: isReady ? 'Running' : 'Pending',
+                        phase: isReady ? 'Running' : 'Pending',
+                        synthetic: true
+                      });
+                    }
+                  }
+
+                  // Добавляем информацию о контроллере для отображения
+                  return {
+                    name: controllerName,
+                    readyReplicas,
+                    desiredReplicas,
+                    pods: podsList,
+                    controllerKey: `${controller?.name || 'unknown'}`
+                  };
+                });
+                const allPods = controllerData.flatMap(controller => {
+                  // если есть реальные поды — берём их
+                  if (controller.pods && controller.pods.length > 0) {
+                    return controller.pods;
+                  }
+                });
+
+                // 2) Логируем единым массивом (он уже может быть длины >1)
+                const sortedAll = [...allPods].sort((a, b) => {
+                  const pa = getStatusPriority(a);
+                  const pb = getStatusPriority(b);
+                  if (pa !== pb) return pa - pb;               // 1→2→3
+                  return (a.name || '').localeCompare(b.name || '');
+                });
+
+                // console.table(sortedAll.map((p, idx) => ({
+                //   name: p.name,
+                //   prio: getStatusPriority(p)
+                // })));
+                // Отображаем данные по контроллерам
+                return (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {sortedAll.map((pod, podIdx) => (
+                                  <div key={`pod-${pod?.name || 'unknown'}-${podIdx}`}
+                                      className={`flex justify-between items-center py-1 px-2
+                                        ${pod.synthetic ? 'bg-gray-100' : 'bg-gray-50'}
+                                        dark:bg-gray-700 rounded text-xs`}>
+                                    <span className="truncate max-w-[160px]" title={pod?.name || 'Desconocido bajo'}>
+                                      {pod?.name || 'Desconocido bajo'} {pod.synthetic ? '(авто)' : ''}
+                                    </span>
+                                    <StatusBadge status={pod?.status || pod?.phase || 'unknown'} type="pod" />
+                                  </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
         </div>
       </div>
     </div>
