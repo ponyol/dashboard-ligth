@@ -201,9 +201,10 @@ export default function ProjectDashboard() {
       {/* Сетка контроллеров */}
       {filteredControllers && filteredControllers.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
-          {<ProjectTable controllers={filteredControllers} focusedController={focusedController} handleOpenDetails={handleOpenDetails} />}
-
-          {filteredControllers.map((controller) => (controller && (<div key={`${controller.namespace}-${controller.name}`} className={focusedController && focusedController !== controller.name ? 'opacity-40 hover:opacity-70 transition-opacity' : ''}><div className="relative"><DeploymentCard deployment={controller} onClick={() => handleOpenDetails(controller)} /></div></div>)
+          <ProjectTable controllers={filteredControllers} focusedController={focusedController} handleOpenDetails={handleOpenDetails} />
+          {filteredControllers.map((controller) => (
+            controller && (
+              <div key={`${controller.namespace}-${controller.name}`} className={focusedController && focusedController !== controller.name ? 'opacity-40 hover:opacity-70 transition-opacity' : ''}><div className="relative"><DeploymentCard deployment={controller} onClick={() => handleOpenDetails(controller)} /></div></div>
             )
           ))}
         </div>
