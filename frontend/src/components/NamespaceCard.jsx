@@ -201,12 +201,18 @@ export default function NamespaceCard({ namespace, deploymentCount, podCount, on
                     controllerKey: `${controller?.name || 'unknown'}`
                   };
                 });
-                const allPods = controllerData.flatMap(controller => {
-                  // если есть реальные поды — берём их
-                  if (controller.pods && controller.pods.length > 0) {
-                    return controller.pods;
-                  }
-                });
+                const allPods = controllerData.flatMap(controller => 
+                    (controller.pods && controller.pods.length > 0) ? controller.pods : []
+                );
+
+                if (!Array.isArray(allPods)) {
+                    console.error('allPods is not an array:', allPods);
+                    return null;
+                }
+
+
+
+
 
                 // 2) Логируем единым массивом (он уже может быть длины >1)
                 const sortedAll = [...allPods].sort((a, b) => {
