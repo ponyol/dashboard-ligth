@@ -192,13 +192,6 @@ export default function useWebSocket(options = {}) {
           currentResources[index] = resource;
         } else {
           currentResources.push(resource);
-        }
-      }
-      newResources[typeKey] = currentResources;
-      return newResources;
-      console.error('Error creating WebSocket connection:', err);
-      setIsConnecting(false);
-      setLastError(err.message || 'Unknown connection error');
       handlersRef.current.onError(err);
 
       // Пробуем переподключиться
@@ -263,23 +256,20 @@ export default function useWebSocket(options = {}) {
           if (resourceType === 'deployments' || resourceType === 'statefulsets') {
             resource.controller_type = resourceType === 'deployments' ? 'deployment' : 'statefulset';
 
-                console.log(`Combined controllers: ${allControllers.length} (${prevState.deployments?.length || 0} deployments + ${prevState.statefulsets?.length || 0} statefulsets)`);
-
-                return {
-                  ...prevState,
-                  controllers: allControllers
-                };
-              });
-
-              newResources[typeKey] = [...prevResources[typeKey] || []];
-
-            if (resourceType === 'deployments') {
-              typeKey = 'deployments';
+                
+            let allControllers = [...(prevResources.deployments || []), ...(prevResources.statefulsets || [])];
+            const controllerIndex = allControllers.findIndex(item => item.namespace === resource.namespace && item.name === resource.name);
+            if (controllerIndex > -1) {
+              allControllers[controllerIndex] = resource;
             } else {
-              typeKey = 'statefulsets';
+              allControllers.push(resource);
             }
 
-          }
+            newResources.controllers = allControllers;
+            
+          } else{
+            newResources[typeKey] = [...prevResources[typeKey] || []];
+          } 
         
           // Для namespaces проверяем наличие всех необходимых полей
           if (resourceType === 'namespaces' && !resource.status) {
@@ -510,4 +500,3 @@ export default function useWebSocket(options = {}) {
     subscribe,
     unsubscribe,
   };
-}
