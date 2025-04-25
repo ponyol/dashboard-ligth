@@ -17,7 +17,7 @@ const ProjectTable = memo(({ controllers, focusedController, handleOpenDetails }
       <div key={`${controller.namespace}-${controller.name}`} className={focusedController && focusedController !== controller.name ? 'opacity-40 hover:opacity-70 transition-opacity' : ''}>
         <DeploymentCard deployment={controller} onClick={() => handleOpenDetails(controller)} /></div>)
   ));
- */
+});
 export default function ProjectDashboard() {
   const {
     namespaces,
