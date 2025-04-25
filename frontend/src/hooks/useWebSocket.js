@@ -1,18 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { API_CONFIG } from '../api/api';
+
 export default function useWebSocket(options = {}) {
   const { onConnect, onDisconnect, onError, retryInterval = 5000 } = options;
 
-  // Состояния для хранения объектов и статусов
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [lastError, setLastError] = useState(null);
   const [resources, setResources] = useState({
     namespaces: [],
     deployments: [],
+    statefulsets: [],
     controllers: [],
-    pods: [],
-    statefulsets: []
+    pods: []
+
+
   });
 
   // Ref для сохранения WebSocket соединения
@@ -25,11 +27,11 @@ export default function useWebSocket(options = {}) {
     onDisconnect: onDisconnect || (() => {}),
     onError: onError || (() => {})
   });
-  // Ref для контроля попыток переподключения
   const reconnectTimeoutRef = useRef(null);
 
-  // Обновляем ref с обработчиками при изменении входных опций
   useEffect(() => {
+  
+   
     handlersRef.current = {
       onConnect: onConnect || handlersRef.current.onConnect,
       onDisconnect: onDisconnect || handlersRef.current.onDisconnect,
@@ -37,16 +39,15 @@ export default function useWebSocket(options = {}) {
     };
   }, [onConnect, onDisconnect, onError]);
 
-  // Функция для создания WebSocket соединения
   const connect = useCallback(() => {
     try {
       if (socketRef.current && (socketRef.current.readyState === WebSocket.OPEN || socketRef.current.readyState === WebSocket.CONNECTING)) {
         console.log('WebSocket already connected or connecting');
         return;
       }
-
+  
       setIsConnecting(true);
-      console.log(`Connecting to WebSocket server at ${API_CONFIG.websocket.url}`);
+      console.log(`Connecting to WebSocket at ${API_CONFIG.websocket.url}`);
 
       // Создаем новое WebSocket соединение
       const ws = new WebSocket(API_CONFIG.websocket.url);
@@ -71,21 +72,21 @@ export default function useWebSocket(options = {}) {
       };
 
       // Обработчик сообщений
-      ws.onmessage = (event) => {
+    ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-
-          // Обработка разных типов сообщений
-          const messageType = data.type || '';
-
-
-          // В useWebSocket.js добавь обработку нового типа сообщений
-          if (messageType === 'resource_batch') {
-            // Обработка пакета ресурсов
-            const batchResources = data.resources || [];
-            const resourceType = data.resourceType;
-            const progress = data.progress || 0;
-            handleResourceBatch(resourceType, batchResources)
+            const data = JSON.parse(event.data);
+            const messageType = data.type || '';
+    
+            if (messageType === 'resource_batch') {
+                const batchResources = data.resources || [];
+                const resourceType = data.resourceType;
+                handleResourceBatch(resourceType, batchResources);
+            } else if (messageType === 'resource') {
+                handleResourceUpdate(data);
+            }else if (messageType === 'error') {
+                console.error('WebSocket error message:', data.message);
+                setLastError(data.message);
+                handlersRef.current.onError(new Error(data.message));
           }
           // else if (messageType === 'subscribed') {
           //   // Подтверждение подписки
@@ -95,22 +96,12 @@ export default function useWebSocket(options = {}) {
           //   // Подтверждение отписки
           //   console.log(`Successfully unsubscribed from ${data.resourceType} in namespace ${data.namespace || 'all'}`);
           // }
-          else if (messageType === 'error') {
-             if (messageType === 'resource') {
-            handleResourceUpdate(data);
-          } else if (messageType === 'error') {
-            // Ошибка
-            console.error('WebSocket error message:', data.message);
-            setLastError(data.message);
-            handlersRef.current.onError(new Error(data.message));
-          }
-          else if (messageType === 'ping' || messageType === 'pong') {
-            // Пинг-понг для поддержания соединения
+            else if (messageType === 'ping' || messageType === 'pong') {
             console.debug(`Received ${data.type} message with timestamp ${data.timestamp}`);
             if (messageType === 'ping') {
-              sendPong(data.timestamp);
+                sendPong(data.timestamp);
             }
-          }
+            }
           else {
             console.log('Unknown message type:', messageType);
           }
@@ -119,8 +110,8 @@ export default function useWebSocket(options = {}) {
         }
       };
 
-      // Обработчик закрытия соединения
-      ws.onclose = (event) => {
+    ws.onclose = (event) => {
+
         console.log(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
         setIsConnected(false);
         setIsConnecting(false);
@@ -134,8 +125,7 @@ export default function useWebSocket(options = {}) {
         }
       };
 
-      // Обработчик ошибок
-      ws.onerror = (error) => {
+    ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         setLastError('WebSocket connection error');
 
@@ -157,32 +147,31 @@ export default function useWebSocket(options = {}) {
     }
   }, []);
 
-  // Функция для обработки пакета ресурсов
-  const handleResourceBatch = useCallback((resourceType, batchResources) => {
-    setResources(prevResources => {
-      const newResources = { ...prevResources };
-      const typeKey = resourceType;
+ const handleResourceBatch = useCallback((resourceType, batchResources) => {
+    setResources((prevResources) => {
+        const newResources = { ...prevResources };
+        const typeKey = resourceType;
 
-      if (!Array.isArray(newResources[typeKey])) {
-        newResources[typeKey] = [];
-      }
-
-      const currentResources = [...newResources[typeKey]];
-      for (const resource of batchResources) {
-        const index = currentResources.findIndex(item =>
-          item && item.name === resource.name && (resourceType === 'namespaces' || item.namespace === resource.namespace)
-        );
-        if (index !== -1) {
-          currentResources[index] = resource;
-        } else {
-            currentResources.push(resource);
+        if (!Array.isArray(newResources[typeKey])) {
+            newResources[typeKey] = [];
         }
-      }
-        newResources[typeKey] = currentResources
-      return newResources;
+
+        const currentResources = [...newResources[typeKey]];
+        for (const resource of batchResources) {
+            const index = currentResources.findIndex(
+                (item) =>
+                    item && item.name === resource.name && (resourceType === 'namespaces' || item.namespace === resource.namespace)
+            );
+            if (index !== -1) {
+                currentResources[index] = resource;
+            } else {
+                currentResources.push(resource);
+            }
+        }
+        newResources[typeKey] = currentResources;
+        return newResources;
     });
-  
-  }, []);
+}, []);
 
   // Функция для запланированного переподключения
   const scheduleReconnect = useCallback(() => {
@@ -198,17 +187,18 @@ export default function useWebSocket(options = {}) {
   }, [connect, retryInterval]);
 
   // Функция для отправки pong в ответ на ping
-  const sendPong = useCallback((timestamp) => {
+ const sendPong = useCallback((timestamp) => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({
-        type: 'pong',
-        timestamp: timestamp
-      }));
+        socketRef.current.send(
+            JSON.stringify({
+                type: 'pong',
+                timestamp: timestamp,
+            })
+        );
     }
-  }, []);
+}, []);
 
-  // Функция для обработки обновлений ресурсов
-  const handleResourceUpdate = useCallback((data) => {
+ const handleResourceUpdate = useCallback((data) => {
     try {
       // Проверяем наличие необходимых данных
       if (!data || typeof data !== 'object') {
@@ -223,14 +213,14 @@ export default function useWebSocket(options = {}) {
       if (!resource || !resourceType) {
         console.error('Invalid resource update message, missing resource or type', data);
         return;
-      }
-      // Обновляем состояние ресурсов
+    }
+
       setResources(prevResources => {
         try {
-          // Копируем предыдущее состояние
+       
           const newResources = {...prevResources};
-
-          // Определяем ключ хранения ресурса
+      
+         
           let typeKey = resourceType;
 
           // Для deployments и statefulsets используем соответствующие массивы
@@ -248,14 +238,12 @@ export default function useWebSocket(options = {}) {
             newResources.controllers = allControllers;
             
           } else{
-            newResources[typeKey] = [...prevResources[typeKey] || []];
-          } 
+             newResources[typeKey] = [...(prevResources[typeKey] || [])];
+           } 
         
-          // Для namespaces проверяем наличие всех необходимых полей
           if (resourceType === 'namespaces' && !resource.status) {
-            // Добавляем статус, если его нет
             resource.status = resource.phase || 'Active';
-          }
+           }
 
           // Проверяем, что у нас есть массив для данного типа ресурсов
           if (!Array.isArray(newResources[typeKey])) {
@@ -265,36 +253,34 @@ export default function useWebSocket(options = {}) {
           // Копируем текущие ресурсы данного типа
           const currentResources = [...newResources[typeKey]];
 
-          // Ищем индекс существующего ресурса (по-разному для разных типов ресурсов)
+         
           let index = -1;
           if (resourceType === 'namespaces') {
-            // Для namespaces ищем только по имени, так как у них нет namespace
+          
             index = currentResources.findIndex(item =>
               item && item.name === resource.name
             );
           } else {
-            // Для остальных ресурсов ищем по namespace и имени
+           
             index = currentResources.findIndex(item =>
               item && item.namespace === resource.namespace && item.name === resource.name
             );
           }
-
+        
           if (eventType === 'ADDED' || eventType === 'MODIFIED' || eventType === 'INITIAL') {
-            handleAddedOrModified(index, currentResources, resource, resourceType)
-          }
-          else if (eventType === 'DELETED') {
-            if (index !== -1){
-              // Удаляем ресурс
-              currentResources.splice(index, 1);
-              console.log(`Removed ${resourceType} resource at index ${index}`);
+               handleAddedOrModified(index, currentResources, resource, resourceType)
             }
-          }
-          else {
-            console.warn(`Unknown event type: ${eventType}`);
-          }
+            else if (eventType === 'DELETED') {
+                if (index !== -1){
+                  currentResources.splice(index, 1);
+                   console.log(`Removed ${resourceType} resource at index ${index}`);
+                }
+            }
+            else {
+                console.warn(`Unknown event type: ${eventType}`);
+            }
 
-          // Возвращаем обновленное состояние
-          newResources[typeKey] = currentResources;
+           newResources[typeKey] = currentResources;
           return newResources;
         } catch (err) {
           console.error('Error updating resources state:', err);
@@ -305,34 +291,34 @@ export default function useWebSocket(options = {}) {
       console.error('Error in handleResourceUpdate:', err);
     }
   }, []);
-
-  // Функция для добавления или обновления ресурса
-  const handleAddedOrModified = useCallback((index, currentResources, resource, resourceType) => {
-    try {
-      if (index !== -1) {
-        // Обновляем существующий ресурс
-        currentResources[index] = resource;
-      } else {
-        // Добавляем новый ресурс
-        currentResources.push(resource);
+ const handleAddedOrModified = useCallback((index, currentResources, resource, resourceType) => {
+      try {
+          if (index !== -1) {
+              currentResources[index] = resource;
+          } else {
+              currentResources.push(resource);
+          }
+          return currentResources;
+      } catch (err) {
+          console.error('Error in handleResourceUpdate:', err);
       }
-      return currentResources;
-
-    } catch (err) {
-      console.error('Error in handleResourceUpdate:', err);
-    }
   }, []);
 
-  // Функция для подписки на конкретный тип ресурса
-  const subscribe = useCallback((resourceType, namespace = null) => {
+ const subscribe = useCallback((resourceType, namespace = null) => {
     try {
       // Проверяем валидность входных параметров
       if (!resourceType || typeof resourceType !== 'string') {
         console.error('Invalid resourceType provided to subscribe:', resourceType);
         return false;
       }
+        
+        if (!socketRef.current) {
+            console.error('Cannot subscribe: WebSocket not initialized');
+            return false;
+        }
 
-      // Проверяем состояние соединения
+        if (socketRef.current.readyState !== WebSocket.OPEN) {
+            console.error('Cannot subscribe: WebSocket not connected');
       if (!socketRef.current) {
         console.error('Cannot subscribe: WebSocket not initialized');
         return false;
@@ -355,7 +341,7 @@ export default function useWebSocket(options = {}) {
       }
 
       try {
-        // Добавляем подробное логирование
+        
         console.log(`Sending subscription request to WebSocket:`, subscriptionMessage);
 
         // Отправляем запрос на подписку
@@ -383,16 +369,15 @@ export default function useWebSocket(options = {}) {
     }
   }, []);
 
-  // Функция для отмены подписки
-  const unsubscribe = useCallback((resourceType, namespace = null) => {
+ const unsubscribe = useCallback((resourceType, namespace = null) => {
     try {
-      // Проверяем валидность входных параметров
-      if (!resourceType || typeof resourceType !== 'string') {
-        console.error('Invalid resourceType provided to unsubscribe:', resourceType);
-        return false;
-      }
+         if (!resourceType || typeof resourceType !== 'string') {
+                console.error('Invalid resourceType provided to unsubscribe:', resourceType);
+                return false;
+            }
 
-      // Проверяем состояние соединения
+     
+
       if (!socketRef.current) {
         console.error('Cannot unsubscribe: WebSocket not initialized');
         return false;
@@ -405,22 +390,22 @@ export default function useWebSocket(options = {}) {
 
       // Формируем сообщение отписки
       const unsubscriptionMessage = {
-        type: 'unsubscribe',
+          type: 'unsubscribe',
+          resourceType: resourceType
       };
-
-      // Добавляем namespace, если он указан
-      if (namespace && typeof namespace === 'string') {
-        unsubscriptionMessage.namespace = namespace;
-      }
-
+       if (namespace && typeof namespace === 'string') {
+                unsubscriptionMessage.namespace = namespace;
+            }
+            
       try {
-        // Отправляем запрос на отписку
+     
         socketRef.current.send(JSON.stringify(unsubscriptionMessage));
-
-        // Удаляем подписку
+    
         const key = resourceType;
         subscriptionsRef.current.delete(key);
-        console.log(`Unsubscribed from ${resourceType} in namespace ${namespace || 'all'}`);
+        console.log(
+            `Unsubscribed from ${resourceType} in namespace ${namespace || 'all'}`
+        );
         return true;
       } catch (err) {
         console.error('Error unsubscribing from resource:', err);
@@ -431,10 +416,9 @@ export default function useWebSocket(options = {}) {
       return false;
     }
   }, []);
+const disconnect = useCallback(() => {
 
-  // Функция для закрытия соединения
-  const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
+     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
@@ -454,11 +438,11 @@ export default function useWebSocket(options = {}) {
   }, []);
 
   // Подключаемся при монтировании компонента
-  useEffect(() => {
+    useEffect(() => {
     connect();
 
-    // Отключаемся при размонтировании
-    return () => {
+   
+      return () => {
       disconnect();
     };
   }, [connect, disconnect]);
