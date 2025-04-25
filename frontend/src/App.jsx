@@ -37,12 +37,12 @@ function App() {
     };
   }, []);
 
-  const toggleTheme = useCallback(() => {
+  const toggleTheme = useCallback(() =>  {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
     localStorage.setItem('dashboard-light-theme', newTheme);
     document.documentElement.classList.toggle('dark');
-  };
+  }, [theme]);
 
   const toggleMenu = () => {
     setMenuCollapsed(!menuCollapsed);
@@ -66,8 +66,6 @@ function App() {
     }
     };
   }, [activeMenu]);
-
-
 
   return (
 
