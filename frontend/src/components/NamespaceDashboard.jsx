@@ -1,7 +1,7 @@
 // src/components/NamespaceDashboard.jsx
 import { useEffect, useCallback, useState, memo } from 'react';
 import useK8sApi from '../hooks/useK8sApi';
-import useWebSocket from '../hooks/useWebSocket'; 
+import useWebSocket from '../hooks/useWebSocket';
 import Filters from './Filters';
 import NamespaceCard from './NamespaceCard';
 import Loading from './Loading';
@@ -128,7 +128,7 @@ export default function NamespaceDashboard() {
 
     }
 
-    
+
     // Проверяем, что controllers определен
     if (resources.controllers && resources.controllers.length > 0) {
       // Логируем примеры контроллеров для проверки структуры данных
@@ -198,7 +198,7 @@ export default function NamespaceDashboard() {
     // Сначала сортируем по статусу, затем по алфавиту
     return [...stats].sort((a, b) => {
       // Сортировка по статусу: healthy -> progressing -> scaled_zero
-      const statusOrder = { 'healthy': 1, 'progressing': 2, 'scaled_zero': 3 };
+      const statusOrder = { 'progressing': 1, 'healthy': 2, 'scaled_zero': 3 };
       if (statusOrder[a.status] !== statusOrder[b.status]) {
         return statusOrder[a.status] - statusOrder[b.status];
       }
@@ -235,7 +235,7 @@ export default function NamespaceDashboard() {
         <p className="text-sm text-gray-600 dark:text-gray-400">
           Overview of your namespaces with deployment and pod counts.
         </p>
-      </div>  
+      </div>
 
       {/* Панель управления с индикатором состояния WebSocket и переключателем оптимизации */}
       <div className="mb-4 flex flex-col sm:flex-row justify-between gap-2">
@@ -299,21 +299,6 @@ export default function NamespaceDashboard() {
 
       {namespaceStats.length > 0 ? (
         <>
-          {/* Разделитель для здоровых неймспейсов в компактном режиме */}
-          {namespaceStats.some(ns => ns.status === 'healthy') && (
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold text-healthy mb-2 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                Healthy Namespaces
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">{
-                  <NamespaceTable namespaceStats={namespaceStats.filter(stats => stats.status === 'healthy')} optimizedView={optimizedView} />}
-              </div>
-            </div>
-          )}
-
           {/* Разделитель для прогрессирующих неймспейсов */}
           {namespaceStats.some(ns => ns.status === 'progressing') && (
             <div className="mb-4">
@@ -332,7 +317,7 @@ export default function NamespaceDashboard() {
                         deploymentCount={stats.deploymentCount}
                         podCount={stats.podCount}
                         compact={optimizedView}
-                        controllers={stats.controllers} 
+                        controllers={stats.controllers}
                       />
                     </div>
                   ))
@@ -340,7 +325,21 @@ export default function NamespaceDashboard() {
               </div>
             </div>
           )}
-          
+          {/* Разделитель для здоровых неймспейсов в компактном режиме */}
+          {namespaceStats.some(ns => ns.status === 'healthy') && (
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-healthy mb-2 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Healthy Namespaces
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">{
+                  <NamespaceTable namespaceStats={namespaceStats.filter(stats => stats.status === 'healthy')} optimizedView={optimizedView} />}
+              </div>
+            </div>
+          )}
+
           {/* Разделитель для неактивных неймспейсов */}
           {namespaceStats.some(ns => ns.status === 'scaled_zero') && (
             <div className="mb-4">
@@ -440,4 +439,3 @@ export default function NamespaceDashboard() {
     </div>
   );
 }
-

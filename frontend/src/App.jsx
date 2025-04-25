@@ -2,13 +2,11 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import NamespaceDashboard from './components/NamespaceDashboard';
 import ProjectDashboard from './components/ProjectDashboard';
 import Sidebar from './components/Sidebar';
-import useWebSocketMonitor from './hooks/useWebSocketMonitor';
 import './App.css';
 
 function App() {
   const [theme, setTheme] = useState('light');
   const socketRef = useRef(null);
-  const { isConnected, messagesReceived, messagesSent, errors, disconnects, sendMessage } = useWebSocketMonitor(socketRef.current);
 
   const [menuCollapsed, setMenuCollapsed] = useState(true);
   const [activeMenu, setActiveMenu] = useState('status-namespace'); // По умолчанию открываем страницу статуса неймспейсов
@@ -24,14 +22,14 @@ function App() {
     // Загрузка состояния меню
     const savedMenuState = localStorage.getItem('dashboard-light-menu') === 'collapsed';
     setMenuCollapsed(savedMenuState);
-    
+
     // Слушаем событие смены меню
     const handleMenuChange = (event) => {
       setActiveMenu(event.detail.menuId);
     };
-    
+
     window.addEventListener('menu-change', handleMenuChange);
-    
+
     return () => {
       window.removeEventListener('menu-change', handleMenuChange);
     };
@@ -109,22 +107,6 @@ function App() {
         <main className="flex-1 w-full overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">
           {renderContent() }
         </main>
-      <footer className="bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 p-4 flex flex-col sm:flex-row items-center justify-between border-t border-gray-300 dark:border-gray-700">
-        <div className="mb-2 sm:mb-0">
-          <p className="text-sm">WebSocket Metrics</p>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 w-full sm:w-auto">
-          <div className="flex items-center gap-1 text-sm"><span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>Status: {isConnected ? 'Connected' : 'Disconnected'}</div>
-          <div className="flex items-center gap-1 text-sm">Messages Received: {messagesReceived}</div>
-          <div className="flex items-center gap-1 text-sm">Messages Sent: {messagesSent}</div>
-          {errors.length > 0 && (
-            <div className="sm:col-span-3 mt-2 sm:mt-0 text-sm">
-              Errors: {errors.map((error, index) => <span key={index}>{error.message || error.toString()}</span>)}
-            </div>
-          )}
-          <div className="flex items-center gap-1 text-sm">Disconnects: {disconnects}</div>
-        </div>
-      </footer>
       </div>
     </div>
   );

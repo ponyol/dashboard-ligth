@@ -30,8 +30,8 @@ export default function useWebSocket(options = {}) {
   const reconnectTimeoutRef = useRef(null);
 
   useEffect(() => {
-  
-   
+
+
     handlersRef.current = {
       onConnect: onConnect || handlersRef.current.onConnect,
       onDisconnect: onDisconnect || handlersRef.current.onDisconnect,
@@ -45,7 +45,7 @@ export default function useWebSocket(options = {}) {
         console.log('WebSocket already connected or connecting');
         return;
       }
-  
+
       setIsConnecting(true);
       console.log(`Connecting to WebSocket at ${API_CONFIG.websocket.url}`);
 
@@ -76,7 +76,7 @@ export default function useWebSocket(options = {}) {
         try {
             const data = JSON.parse(event.data);
             const messageType = data.type || '';
-    
+
             if (messageType === 'resource_batch') {
                 const batchResources = data.resources || [];
                 const resourceType = data.resourceType;
@@ -217,16 +217,16 @@ export default function useWebSocket(options = {}) {
 
       setResources(prevResources => {
         try {
-       
+
           const newResources = {...prevResources};
-      
-         
+
+
           let typeKey = resourceType;
 
           // Для deployments и statefulsets используем соответствующие массивы
           if (resourceType === 'deployments' || resourceType === 'statefulsets') {
             resource.controller_type = resourceType === 'deployments' ? 'deployment' : 'statefulset';
-                
+
             let allControllers = [...(prevResources.deployments || []), ...(prevResources.statefulsets || [])];
             const controllerIndex = allControllers.findIndex(item => item.namespace === resource.namespace && item.name === resource.name);
             if (controllerIndex > -1) {
@@ -236,11 +236,11 @@ export default function useWebSocket(options = {}) {
             }
 
             newResources.controllers = allControllers;
-            
+
           } else{
              newResources[typeKey] = [...(prevResources[typeKey] || [])];
-           } 
-        
+           }
+
           if (resourceType === 'namespaces' && !resource.status) {
             resource.status = resource.phase || 'Active';
            }
@@ -253,20 +253,20 @@ export default function useWebSocket(options = {}) {
           // Копируем текущие ресурсы данного типа
           const currentResources = [...newResources[typeKey]];
 
-         
+
           let index = -1;
           if (resourceType === 'namespaces') {
-          
+
             index = currentResources.findIndex(item =>
               item && item.name === resource.name
             );
           } else {
-           
+
             index = currentResources.findIndex(item =>
               item && item.namespace === resource.namespace && item.name === resource.name
             );
           }
-        
+
           if (eventType === 'ADDED' || eventType === 'MODIFIED' || eventType === 'INITIAL') {
                handleAddedOrModified(index, currentResources, resource, resourceType)
             }
@@ -311,21 +311,9 @@ export default function useWebSocket(options = {}) {
         console.error('Invalid resourceType provided to subscribe:', resourceType);
         return false;
       }
-        
-        if (!socketRef.current) {
-            console.error('Cannot subscribe: WebSocket not initialized');
-            return false;
-        }
 
-        if (socketRef.current.readyState !== WebSocket.OPEN) {
-            console.error('Cannot subscribe: WebSocket not connected');
-      if (!socketRef.current) {
-        console.error('Cannot subscribe: WebSocket not initialized');
-        return false;
-      }
-
-      if (socketRef.current.readyState !== WebSocket.OPEN) {
-        console.error('Cannot subscribe: WebSocket not connected');
+      if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+        console.error('Cannot subscribe: WebSocket not initialized or not connected');
         return false;
       }
 
@@ -341,7 +329,7 @@ export default function useWebSocket(options = {}) {
       }
 
       try {
-        
+
         console.log(`Sending subscription request to WebSocket:`, subscriptionMessage);
 
         // Отправляем запрос на подписку
@@ -376,7 +364,7 @@ export default function useWebSocket(options = {}) {
                 return false;
             }
 
-     
+
 
       if (!socketRef.current) {
         console.error('Cannot unsubscribe: WebSocket not initialized');
@@ -396,11 +384,11 @@ export default function useWebSocket(options = {}) {
        if (namespace && typeof namespace === 'string') {
                 unsubscriptionMessage.namespace = namespace;
             }
-            
+
       try {
-     
+
         socketRef.current.send(JSON.stringify(unsubscriptionMessage));
-    
+
         const key = resourceType;
         subscriptionsRef.current.delete(key);
         console.log(
@@ -441,7 +429,7 @@ const disconnect = useCallback(() => {
     useEffect(() => {
     connect();
 
-   
+
       return () => {
       disconnect();
     };
