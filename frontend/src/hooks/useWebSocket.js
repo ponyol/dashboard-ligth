@@ -1,11 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { API_CONFIG } from '../api/api';
-
-/**
- * Хук для работы с WebSocket соединением и подписками
- * @param {Object} options - Опции подключения
- * @returns {Object} - API для работы с WebSocket
- */
 export default function useWebSocket(options = {}) {
   const { onConnect, onDisconnect, onError, retryInterval = 5000 } = options;
 
@@ -92,20 +86,7 @@ export default function useWebSocket(options = {}) {
             const resourceType = data.resourceType;
             const progress = data.progress || 0;
             handleResourceBatch(resourceType, batchResources)
-
           }
-          // else if (messageType === 'connection') {
-          //   // Сообщение при установке соединения
-          //   console.log('Connection message received:', data.message);
-          // }
-          else if (messageType === 'resource') {
-            // Обновление ресурса
-            handleResourceUpdate(data);
-          }
-          // else if (messageType === 'initial_state_complete') {
-          //   // Завершение передачи начального состояния
-          //   console.log(`Initial state complete for ${data.resourceType}. Received ${data.count} items.`);
-          // }
           // else if (messageType === 'subscribed') {
           //   // Подтверждение подписки
           //   console.log(`Successfully subscribed to ${data.resourceType} in namespace ${data.namespace || 'all'}`);
@@ -115,6 +96,9 @@ export default function useWebSocket(options = {}) {
           //   console.log(`Successfully unsubscribed from ${data.resourceType} in namespace ${data.namespace || 'all'}`);
           // }
           else if (messageType === 'error') {
+             if (messageType === 'resource') {
+            handleResourceUpdate(data);
+          } else if (messageType === 'error') {
             // Ошибка
             console.error('WebSocket error message:', data.message);
             setLastError(data.message);
@@ -191,12 +175,13 @@ export default function useWebSocket(options = {}) {
         if (index !== -1) {
           currentResources[index] = resource;
         } else {
-          currentResources.push(resource);
-      handlersRef.current.onError(err);
-
-      // Пробуем переподключиться
-      scheduleReconnect();
-    }
+            currentResources.push(resource);
+        }
+      }
+        newResources[typeKey] = currentResources
+      return newResources;
+    });
+  
   }, []);
 
   // Функция для запланированного переподключения
@@ -239,10 +224,6 @@ export default function useWebSocket(options = {}) {
         console.error('Invalid resource update message, missing resource or type', data);
         return;
       }
-
-
-
-
       // Обновляем состояние ресурсов
       setResources(prevResources => {
         try {
@@ -255,7 +236,6 @@ export default function useWebSocket(options = {}) {
           // Для deployments и statefulsets используем соответствующие массивы
           if (resourceType === 'deployments' || resourceType === 'statefulsets') {
             resource.controller_type = resourceType === 'deployments' ? 'deployment' : 'statefulset';
-
                 
             let allControllers = [...(prevResources.deployments || []), ...(prevResources.statefulsets || [])];
             const controllerIndex = allControllers.findIndex(item => item.namespace === resource.namespace && item.name === resource.name);
@@ -318,7 +298,7 @@ export default function useWebSocket(options = {}) {
           return newResources;
         } catch (err) {
           console.error('Error updating resources state:', err);
-          return prevResources; // Возвращаем предыдущее состояние в случае ошибки
+          return prevResources;
         }
       });
     } catch (err) {
@@ -332,14 +312,10 @@ export default function useWebSocket(options = {}) {
       if (index !== -1) {
         // Обновляем существующий ресурс
         currentResources[index] = resource;
-
-
       } else {
         // Добавляем новый ресурс
         currentResources.push(resource);
-
       }
-
       return currentResources;
 
     } catch (err) {
@@ -430,7 +406,6 @@ export default function useWebSocket(options = {}) {
       // Формируем сообщение отписки
       const unsubscriptionMessage = {
         type: 'unsubscribe',
-        resourceType: resourceType
       };
 
       // Добавляем namespace, если он указан
@@ -445,7 +420,6 @@ export default function useWebSocket(options = {}) {
         // Удаляем подписку
         const key = resourceType;
         subscriptionsRef.current.delete(key);
-
         console.log(`Unsubscribed from ${resourceType} in namespace ${namespace || 'all'}`);
         return true;
       } catch (err) {
@@ -500,3 +474,4 @@ export default function useWebSocket(options = {}) {
     subscribe,
     unsubscribe,
   };
+}
