@@ -82,17 +82,19 @@ export default function NamespaceDashboard() {
       return [];
     }
 
-    // Инициализация статистики для всех неймспейсов
-    resources.namespaces.forEach(ns => {
-      stats[ns.name] = {
-        namespace: ns,
-        deploymentCount: 0,
-        podCount: 0,
-        controllers: []
-        }
-      };
-    });
     const stats = {};
+
+    // Инициализация статистики для всех неймспейсов
+    if (resources.namespaces && resources.namespaces.length > 0) {
+        resources.namespaces.forEach(ns => {
+            stats[ns.name] = {
+                namespace: ns,
+                deploymentCount: 0,
+                podCount: 0,
+                controllers: []
+            };
+        });
+      };
 
     // Подготовка объекта для привязки подов к контроллерам
     const podsByController = {};
@@ -187,7 +189,7 @@ export default function NamespaceDashboard() {
     });
 
     return Object.values(stats);
-  }, [resources.namespaces, resources.controllers]);
+  }, [resources]);
 
   // Сортировка и организация неймспейсов
   const sortNamespaces = useCallback((stats) => {
@@ -322,23 +324,23 @@ export default function NamespaceDashboard() {
                 Progressing Namespaces
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">{
-                {namespaceStats
+                namespaceStats
                   .filter(stats => stats.status === 'progressing')
                   .map((stats) => ( <div key={stats.namespace.name}>
                       <NamespaceCard
                         namespace={stats.namespace}
                         deploymentCount={stats.deploymentCount}
                         podCount={stats.podCount}
-                        compact={false} // Всегда показываем полный вид
-                        controllers={stats.controllers} // Передаем список контроллеров и их подов
-                      /></div>
+                        compact={optimizedView}
+                        controllers={stats.controllers} 
+                      />
                     </div>
                   ))
                 }
               </div>
             </div>
           )}
-
+          
           {/* Разделитель для неактивных неймспейсов */}
           {namespaceStats.some(ns => ns.status === 'scaled_zero') && (
             <div className="mb-4">
@@ -349,14 +351,14 @@ export default function NamespaceDashboard() {
                 Inactive Namespaces
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">{
-                {namespaceStats
+                namespaceStats
                   .filter(stats => stats.status === 'scaled_zero')
                   .map((stats) => ( <div key={stats.namespace.name}>
                       <NamespaceCard
                         namespace={stats.namespace}
                         deploymentCount={stats.deploymentCount}
                         podCount={stats.podCount}
-                        compact={false} />
+                        compact={optimizedView}
                       />
                     </div>
                   ))
