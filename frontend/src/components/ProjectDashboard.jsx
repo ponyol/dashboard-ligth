@@ -1,5 +1,5 @@
 // src/components/ProjectDashboard.jsx
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, memo } from 'react';
 import useK8sApi from '../hooks/useK8sApi';
 import useWebSocket from '../hooks/useWebSocket';
 import Filters from './Filters';
@@ -9,6 +9,14 @@ import Loading from './Loading';
 
 /**
  * Компонент дашборда проектов с поддержкой WebSocket
+ */
+
+const ProjectTable = memo(({ controllers, focusedController, handleOpenDetails }) => {
+  return controllers.map((controller) => (
+    controller && (
+      <div key={`${controller.namespace}-${controller.name}`} className={focusedController && focusedController !== controller.name ? 'opacity-40 hover:opacity-70 transition-opacity' : ''}>
+        <DeploymentCard deployment={controller} onClick={() => handleOpenDetails(controller)} /></div>)
+  ));
  */
 export default function ProjectDashboard() {
   const {
@@ -43,14 +51,13 @@ export default function ProjectDashboard() {
     unsubscribe
   } = useWebSocket({
     onConnect: () => {
-      // console.log('WebSocket connected, subscribing to resources...');
       setError(null);
       // Подписываемся на необходимые ресурсы при подключении
       if (typeof subscribe === 'function') {
         subscribe('namespaces');
-        subscribe('deployments', selectedNamespace || null);
-        subscribe('statefulsets', selectedNamespace || null);
-        subscribe('pods', selectedNamespace || null);
+        subscribe('deployments', selectedNamespace);
+        subscribe('statefulsets', selectedNamespace);
+        subscribe('pods', selectedNamespace);
       }
       setIsLoading(false);
     },
@@ -97,11 +104,10 @@ export default function ProjectDashboard() {
   // Изменение подписки при смене неймспейса
   useEffect(() => {
     if (isConnected && typeof subscribe === 'function') {
-      console.log('Resubscribing to controllers for namespace:', selectedNamespace || 'all');
       // Переподписываемся на deployments и statefulsets с новым неймспейсом
-      subscribe('deployments', selectedNamespace || null);
-      subscribe('statefulsets', selectedNamespace || null);
-      subscribe('pods', selectedNamespace || null);
+      subscribe('deployments', selectedNamespace);
+      subscribe('statefulsets', selectedNamespace);
+      subscribe('pods', selectedNamespace);
     }
   }, [isConnected, selectedNamespace, subscribe]);
 
@@ -139,10 +145,10 @@ export default function ProjectDashboard() {
     } else if (typeof subscribe === 'function') {
       // Переподписываемся на все ресурсы
       subscribe('namespaces');
-      subscribe('deployments', selectedNamespace || null);
-      subscribe('statefulsets', selectedNamespace || null);
-      subscribe('pods', selectedNamespace || null);
-      setIsLoading(false);
+      subscribe('deployments', selectedNamespace);
+      subscribe('statefulsets', selectedNamespace);
+      subscribe('pods', selectedNamespace);
+      setIsLoading(false)
     }
   }, [isConnected, connect, subscribe, selectedNamespace]);
 
@@ -195,19 +201,9 @@ export default function ProjectDashboard() {
       {/* Сетка контроллеров */}
       {filteredControllers && filteredControllers.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
-          {filteredControllers.map((controller) => (
-            controller && (
-              <div
-                key={`${controller.namespace}-${controller.name}`}
-                className={focusedController && focusedController !== controller.name ? 'opacity-40 hover:opacity-70 transition-opacity' : ''}
-              >
-                <div className="relative">
-                  <DeploymentCard
-                    deployment={controller}
-                    onClick={() => handleOpenDetails(controller)}
-                  />
-                </div>
-              </div>
+          {<ProjectTable controllers={filteredControllers} focusedController={focusedController} handleOpenDetails={handleOpenDetails} />}
+
+          {filteredControllers.map((controller) => (controller && (<div key={`${controller.namespace}-${controller.name}`} className={focusedController && focusedController !== controller.name ? 'opacity-40 hover:opacity-70 transition-opacity' : ''}><div className="relative"><DeploymentCard deployment={controller} onClick={() => handleOpenDetails(controller)} /></div></div>)
             )
           ))}
         </div>

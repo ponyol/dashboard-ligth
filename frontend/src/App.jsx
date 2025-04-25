@@ -1,12 +1,15 @@
-// src/App.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import NamespaceDashboard from './components/NamespaceDashboard';
 import ProjectDashboard from './components/ProjectDashboard';
 import Sidebar from './components/Sidebar';
+import useWebSocketMonitor from './hooks/useWebSocketMonitor';
 import './App.css';
 
 function App() {
   const [theme, setTheme] = useState('light');
+  const socketRef = useRef(null);
+  const { isConnected, messagesReceived, messagesSent, errors, disconnects, sendMessage } = useWebSocketMonitor(socketRef.current);
+
   const [menuCollapsed, setMenuCollapsed] = useState(true);
   const [activeMenu, setActiveMenu] = useState('status-namespace'); // По умолчанию открываем страницу статуса неймспейсов
 
@@ -34,7 +37,7 @@ function App() {
     };
   }, []);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
     localStorage.setItem('dashboard-light-theme', newTheme);
@@ -42,14 +45,14 @@ function App() {
   };
 
   const toggleMenu = () => {
-    const newState = !menuCollapsed;
-    setMenuCollapsed(newState);
-    localStorage.setItem('dashboard-light-menu', newState ? 'collapsed' : 'expanded');
+    setMenuCollapsed(!menuCollapsed);
+    localStorage.setItem('dashboard-light-menu', !menuCollapsed ? 'collapsed' : 'expanded');
   };
-  
+
   // Определяем, какой компонент нужно отображать в зависимости от выбранного пункта меню
-  const renderContent = () => {
-    switch (activeMenu) {
+  const renderContent = useMemo(() => {
+    return () => {
+      switch (activeMenu) {
       case 'status-namespace':
         return <NamespaceDashboard />;
       case 'status-project':
@@ -61,9 +64,13 @@ function App() {
       default:
         return <NamespaceDashboard />;
     }
-  };
+    };
+  }, [activeMenu]);
+
+
 
   return (
+
     <div className={`${theme} full-screen-app flex flex-col h-screen w-screen m-0 p-0 bg-gray-100 dark:bg-gray-900 overflow-hidden`}>
       {/* Верхний заголовок */}
       <div className="bg-blue-800 dark:bg-gray-800 text-white px-4 py-2 flex justify-between items-center shadow-md z-10 w-full">
@@ -102,8 +109,24 @@ function App() {
       <div className="flex flex-1 overflow-hidden w-full">
         <Sidebar collapsed={menuCollapsed} />
         <main className="flex-1 w-full overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900">
-          {renderContent()}
+          {renderContent() }
         </main>
+      <footer className="bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 p-4 flex flex-col sm:flex-row items-center justify-between border-t border-gray-300 dark:border-gray-700">
+        <div className="mb-2 sm:mb-0">
+          <p className="text-sm">WebSocket Metrics</p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-1 text-sm"><span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>Status: {isConnected ? 'Connected' : 'Disconnected'}</div>
+          <div className="flex items-center gap-1 text-sm">Messages Received: {messagesReceived}</div>
+          <div className="flex items-center gap-1 text-sm">Messages Sent: {messagesSent}</div>
+          {errors.length > 0 && (
+            <div className="sm:col-span-3 mt-2 sm:mt-0 text-sm">
+              Errors: {errors.map((error, index) => <span key={index}>{error.message || error.toString()}</span>)}
+            </div>
+          )}
+          <div className="flex items-center gap-1 text-sm">Disconnects: {disconnects}</div>
+        </div>
+      </footer>
       </div>
     </div>
   );

@@ -109,41 +109,28 @@ export function WebSocketProvider({ children }) {
       // Здесь можно загрузить начальные данные из REST API
       // Это позволит быстрее отобразить интерфейс, не дожидаясь всех событий от WebSocket
       const fetchInitialData = async () => {
-        try {
-          // Пример загрузки деплойментов
-          const deploymentsResponse = await fetch('/api/k8s/deployments');
-          const deploymentsData = await deploymentsResponse.json();
+        try{
+            const responses = await Promise.all([
+                fetch('/api/k8s/deployments'),
+                fetch('/api/k8s/namespaces'),
+                fetch('/api/k8s/pods'),
+            ]);
 
-          dispatch({
-            type: 'INITIALIZE',
-            resourceType: 'deployments',
-            resources: deploymentsData.items || []
-          });
+            const [deploymentsData, namespacesData, podsData] = await Promise.all(
+                responses.map(response => response.json())
+            );
 
-          // Загрузка namespace
-          const namespacesResponse = await fetch('/api/k8s/namespaces');
-          const namespacesData = await namespacesResponse.json();
-
-          dispatch({
-            type: 'INITIALIZE',
-            resourceType: 'namespaces',
-            resources: namespacesData.items || []
-          });
-
-          // Загрузка подов
-          const podsResponse = await fetch('/api/k8s/pods');
-          const podsData = await podsResponse.json();
-
-          dispatch({
-            type: 'INITIALIZE',
-            resourceType: 'pods',
-            resources: podsData.items || []
-          });
-
+            dispatch({ type: 'INITIALIZE', resourceType: 'deployments', resources: deploymentsData.items || [] });
+            dispatch({ type: 'INITIALIZE', resourceType: 'namespaces', resources: namespacesData.items || [] });
+            dispatch({ type: 'INITIALIZE', resourceType: 'pods', resources: podsData.items || [] });
         } catch (error) {
-          console.error('Ошибка при загрузке начальных данных:', error);
+            console.error('Ошибка при загрузке начальных данных:', error);
         }
       };
+
+       
+        
+        
 
       fetchInitialData();
     }

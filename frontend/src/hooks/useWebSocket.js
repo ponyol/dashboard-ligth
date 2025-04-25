@@ -18,7 +18,7 @@ export default function useWebSocket(options = {}) {
     deployments: [],
     controllers: [],
     pods: [],
-    statefulsets: [] // Добавляем отдельный массив для statefulsets
+    statefulsets: []
   });
 
   // Ref для сохранения WebSocket соединения
@@ -80,10 +80,10 @@ export default function useWebSocket(options = {}) {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          // console.debug('Received WebSocket message:', data.type);
 
           // Обработка разных типов сообщений
           const messageType = data.type || '';
+
 
           // В useWebSocket.js добавь обработку нового типа сообщений
           if (messageType === 'resource_batch') {
@@ -91,43 +91,8 @@ export default function useWebSocket(options = {}) {
             const batchResources = data.resources || [];
             const resourceType = data.resourceType;
             const progress = data.progress || 0;
+            handleResourceBatch(resourceType, batchResources)
 
-            // console.log(`Получен пакет ${data.batchNumber}/${data.totalBatches} для ${resourceType} (${progress}%)`);
-
-            // Добавляем ресурсы из пакета в состояние
-            setResources(prevResources => {
-              const newResources = {...prevResources};
-              const typeKey = resourceType;
-
-              if (!Array.isArray(newResources[typeKey])) {
-                newResources[typeKey] = [];
-              }
-
-              // Добавляем ресурсы из пакета к уже имеющимся
-              const currentResources = [...newResources[typeKey]];
-
-              // Обрабатываем каждый ресурс в пакете
-              for (const resource of batchResources) {
-                // Ищем существующий ресурс по имени и namespace
-                const index = currentResources.findIndex(item =>
-                  item &&
-                  item.name === resource.name &&
-                  (resourceType === 'namespaces' || item.namespace === resource.namespace)
-                );
-
-                if (index !== -1) {
-                  // Обновляем существующий ресурс
-                  currentResources[index] = resource;
-                } else {
-                  // Добавляем новый ресурс
-                  currentResources.push(resource);
-                }
-              }
-
-              // Обновляем список ресурсов
-              newResources[typeKey] = currentResources;
-              return newResources;
-            });
           }
           // else if (messageType === 'connection') {
           //   // Сообщение при установке соединения
@@ -208,6 +173,39 @@ export default function useWebSocket(options = {}) {
     }
   }, []);
 
+  // Функция для обработки пакета ресурсов
+  const handleResourceBatch = useCallback((resourceType, batchResources) => {
+    setResources(prevResources => {
+      const newResources = { ...prevResources };
+      const typeKey = resourceType;
+
+      if (!Array.isArray(newResources[typeKey])) {
+        newResources[typeKey] = [];
+      }
+
+      const currentResources = [...newResources[typeKey]];
+      for (const resource of batchResources) {
+        const index = currentResources.findIndex(item =>
+          item && item.name === resource.name && (resourceType === 'namespaces' || item.namespace === resource.namespace)
+        );
+        if (index !== -1) {
+          currentResources[index] = resource;
+        } else {
+          currentResources.push(resource);
+        }
+      }
+      newResources[typeKey] = currentResources;
+      return newResources;
+      console.error('Error creating WebSocket connection:', err);
+      setIsConnecting(false);
+      setLastError(err.message || 'Unknown connection error');
+      handlersRef.current.onError(err);
+
+      // Пробуем переподключиться
+      scheduleReconnect();
+    }
+  }, []);
+
   // Функция для запланированного переподключения
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -249,12 +247,8 @@ export default function useWebSocket(options = {}) {
         return;
       }
 
-      // Адаптируем логирование для разных типов ресурсов
-      // if (resourceType === 'namespaces') {
-      //   console.log(`Received ${eventType} event for ${resourceType}/${resource.name}`);
-      // } else {
-      //   console.log(`Received ${eventType} event for ${resourceType}/${resource.namespace || 'global'}/${resource.name}`);
-      // }
+
+
 
       // Обновляем состояние ресурсов
       setResources(prevResources => {
@@ -265,29 +259,9 @@ export default function useWebSocket(options = {}) {
           // Определяем ключ хранения ресурса
           let typeKey = resourceType;
 
-          // Для deployments и statefulsets используем соответствующие массивы и общий массив controllers
+          // Для deployments и statefulsets используем соответствующие массивы
           if (resourceType === 'deployments' || resourceType === 'statefulsets') {
-            // Сохраняем в специфическом массиве для типа
-            if (resourceType === 'deployments') {
-              newResources.deployments = [...prevResources.deployments || []];
-              typeKey = 'deployments';
-            } else {
-              newResources.statefulsets = [...prevResources.statefulsets || []];
-              typeKey = 'statefulsets';
-            }
-
-            // Также добавляем информацию о типе контроллера
             resource.controller_type = resourceType === 'deployments' ? 'deployment' : 'statefulset';
-
-            // После обработки события в специфическом массиве, обновляем общий массив controllers
-            setTimeout(() => {
-              // Используем setTimeout чтобы не блокировать текущий render
-              setResources(prevState => {
-                // Комбинируем deployments и statefulsets в controllers
-                const allControllers = [
-                  ...(prevState.deployments || []),
-                  ...(prevState.statefulsets || [])
-                ];
 
                 console.log(`Combined controllers: ${allControllers.length} (${prevState.deployments?.length || 0} deployments + ${prevState.statefulsets?.length || 0} statefulsets)`);
 
@@ -296,9 +270,17 @@ export default function useWebSocket(options = {}) {
                   controllers: allControllers
                 };
               });
-            }, 0);
-          }
 
+              newResources[typeKey] = [...prevResources[typeKey] || []];
+
+            if (resourceType === 'deployments') {
+              typeKey = 'deployments';
+            } else {
+              typeKey = 'statefulsets';
+            }
+
+          }
+        
           // Для namespaces проверяем наличие всех необходимых полей
           if (resourceType === 'namespaces' && !resource.status) {
             // Добавляем статус, если его нет
@@ -327,27 +309,11 @@ export default function useWebSocket(options = {}) {
             );
           }
 
-          // Добавляем детальное логирование для ресурсов
-          if (resourceType === 'namespaces' || resourceType === 'deployments' || resourceType === 'statefulsets') {
-            const resourceName = resource.name || 'unknown';
-            const resourceNamespace = resource.namespace || 'global';
-            // console.log(`WebSocket event ${eventType} for ${resourceType}/${resourceNamespace}/${resourceName}`);
-          }
-
-          // Обрабатываем разные типы событий
           if (eventType === 'ADDED' || eventType === 'MODIFIED' || eventType === 'INITIAL') {
-            if (index !== -1) {
-              // Обновляем существующий ресурс
-              currentResources[index] = resource;
-              // console.log(`Updated existing ${resourceType} resource at index ${index}`);
-            } else {
-              // Добавляем новый ресурс
-              currentResources.push(resource);
-              // console.log(`Added new ${resourceType} resource, total: ${currentResources.length}`);
-            }
+            handleAddedOrModified(index, currentResources, resource, resourceType)
           }
           else if (eventType === 'DELETED') {
-            if (index !== -1) {
+            if (index !== -1){
               // Удаляем ресурс
               currentResources.splice(index, 1);
               console.log(`Removed ${resourceType} resource at index ${index}`);
@@ -359,13 +325,33 @@ export default function useWebSocket(options = {}) {
 
           // Возвращаем обновленное состояние
           newResources[typeKey] = currentResources;
-          // console.log(`Updated resources.${typeKey}: now contains ${currentResources.length} items`);
           return newResources;
         } catch (err) {
           console.error('Error updating resources state:', err);
           return prevResources; // Возвращаем предыдущее состояние в случае ошибки
         }
       });
+    } catch (err) {
+      console.error('Error in handleResourceUpdate:', err);
+    }
+  }, []);
+
+  // Функция для добавления или обновления ресурса
+  const handleAddedOrModified = useCallback((index, currentResources, resource, resourceType) => {
+    try {
+      if (index !== -1) {
+        // Обновляем существующий ресурс
+        currentResources[index] = resource;
+
+
+      } else {
+        // Добавляем новый ресурс
+        currentResources.push(resource);
+
+      }
+
+      return currentResources;
+
     } catch (err) {
       console.error('Error in handleResourceUpdate:', err);
     }

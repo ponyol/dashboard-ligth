@@ -1,7 +1,7 @@
 // src/components/NamespaceDashboard.jsx
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, memo } from 'react';
 import useK8sApi from '../hooks/useK8sApi';
-import useWebSocket from '../hooks/useWebSocket';
+import useWebSocket from '../hooks/useWebSocket'; 
 import Filters from './Filters';
 import NamespaceCard from './NamespaceCard';
 import Loading from './Loading';
@@ -9,6 +9,16 @@ import Loading from './Loading';
 /**
  * Компонент дашборда статуса неймспейсов с поддержкой WebSocket
  */
+
+const NamespaceTable = memo(({ namespaceStats, optimizedView }) => {
+    return namespaceStats.map((stats) => (
+      <div key={stats.namespace.name}>
+        <NamespaceCard namespace={stats.namespace} deploymentCount={stats.deploymentCount} podCount={stats.podCount} compact={optimizedView} />
+      </div>
+    ))
+  })
+
+
 export default function NamespaceDashboard() {
   const {
     handleClearCache,
@@ -31,14 +41,12 @@ export default function NamespaceDashboard() {
     subscribe,
   } = useWebSocket({
     onConnect: () => {
-      // console.log('WebSocket connected, subscribing to resources...');
       setError(null);
       // Подписываемся на необходимые ресурсы при подключении
       subscribe('namespaces');
       subscribe('deployments');
       subscribe('statefulsets');
       subscribe('pods');
-      setIsLoading(false);
     },
     onDisconnect: () => {
       // console.log('WebSocket disconnected');
@@ -74,12 +82,6 @@ export default function NamespaceDashboard() {
       return [];
     }
 
-    // console.log(`Calculating stats for ${resources.namespaces.length} namespaces`);
-    // console.log(`Have ${resources.controllers?.length || 0} controllers available for stats calculation`);
-    // console.log('Pods available:', resources.pods?.length || 0);
-
-    const stats = {};
-
     // Инициализация статистики для всех неймспейсов
     resources.namespaces.forEach(ns => {
       stats[ns.name] = {
@@ -87,8 +89,10 @@ export default function NamespaceDashboard() {
         deploymentCount: 0,
         podCount: 0,
         controllers: []
+        }
       };
     });
+    const stats = {};
 
     // Подготовка объекта для привязки подов к контроллерам
     const podsByController = {};
@@ -96,16 +100,10 @@ export default function NamespaceDashboard() {
     // Группируем поды по контроллеру
     if (resources.pods && resources.pods.length > 0) {
       // Выведем пример данных пода для отладки и вывода всей структуры
-      if (resources.pods.length > 0) {
-        // console.log("Sample pod data:", JSON.stringify(resources.pods[0], null, 2));
-        // console.log(`Available pods: ${resources.pods.length}`);
-        // Выведем первые 5 имен подов для проверки
-        const samplePodNames = resources.pods.slice(0, 5).map(p => p.name).join(", ");
-        // console.log(`Sample pod names: ${samplePodNames}`);
-      }
+
 
       resources.pods.forEach(pod => {
-        if (pod && pod.namespace) {
+        if (pod.namespace) {
           // Находим владельца пода разными способами - в разных реализациях Kubernetes API поля могут отличаться
           const owner = pod.owner || pod.controller_name ||
                         (pod.owner_references && pod.owner_references.length > 0 && pod.owner_references[0].name);
@@ -122,17 +120,13 @@ export default function NamespaceDashboard() {
             }
 
             podsByController[key].push(pod);
-            // console.log(`Pod ${pod.name} added to controller ${owner} in namespace ${pod.namespace}`);
           }
-          //   else {
-          //   console.log(`Pod ${pod.name} has no owner information, skipping`);
-          // }
         }
       });
 
-      // console.log(`Grouped ${Object.keys(podsByController).length} pod groups by controller`);
     }
 
+    
     // Проверяем, что controllers определен
     if (resources.controllers && resources.controllers.length > 0) {
       // Логируем примеры контроллеров для проверки структуры данных
@@ -169,11 +163,6 @@ export default function NamespaceDashboard() {
             const readyReplicas = controller.replicas.ready || 0;
             nsStats.podCount += readyReplicas;
 
-            // Также можно проверить поды напрямую, если они доступны
-            // if (controller.pods && Array.isArray(controller.pods)) {
-            //   // Логирование для отладки
-            //   console.log(`  - Controller ${controller.name} in ${controller.namespace} has ${controller.pods.length} pods directly`);
-            // }
           }
         });
 
@@ -218,6 +207,7 @@ export default function NamespaceDashboard() {
   }, []);
 
   // Расчет статистики по неймспейсам
+
   const namespaceStats = sortNamespaces(getNamespaceStats());
 
   // Убираем показ индикатора загрузки при начальной загрузке страницы
@@ -243,7 +233,7 @@ export default function NamespaceDashboard() {
         <p className="text-sm text-gray-600 dark:text-gray-400">
           Overview of your namespaces with deployment and pod counts.
         </p>
-      </div>
+      </div>  
 
       {/* Панель управления с индикатором состояния WebSocket и переключателем оптимизации */}
       <div className="mb-4 flex flex-col sm:flex-row justify-between gap-2">
@@ -316,20 +306,8 @@ export default function NamespaceDashboard() {
                 </svg>
                 Healthy Namespaces
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
-                {namespaceStats
-                  .filter(stats => stats.status === 'healthy')
-                  .map((stats) => (
-                    <div key={stats.namespace.name}>
-                      <NamespaceCard
-                        namespace={stats.namespace}
-                        deploymentCount={stats.deploymentCount}
-                        podCount={stats.podCount}
-                        compact={optimizedView}
-                      />
-                    </div>
-                  ))
-                }
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">{
+                  <NamespaceTable namespaceStats={namespaceStats.filter(stats => stats.status === 'healthy')} optimizedView={optimizedView} />}
               </div>
             </div>
           )}
@@ -343,18 +321,17 @@ export default function NamespaceDashboard() {
                 </svg>
                 Progressing Namespaces
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">{
                 {namespaceStats
                   .filter(stats => stats.status === 'progressing')
-                  .map((stats) => (
-                    <div key={stats.namespace.name}>
+                  .map((stats) => ( <div key={stats.namespace.name}>
                       <NamespaceCard
                         namespace={stats.namespace}
                         deploymentCount={stats.deploymentCount}
                         podCount={stats.podCount}
                         compact={false} // Всегда показываем полный вид
                         controllers={stats.controllers} // Передаем список контроллеров и их подов
-                      />
+                      /></div>
                     </div>
                   ))
                 }
@@ -371,16 +348,15 @@ export default function NamespaceDashboard() {
                 </svg>
                 Inactive Namespaces
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-3 overflow-x-hidden">{
                 {namespaceStats
                   .filter(stats => stats.status === 'scaled_zero')
-                  .map((stats) => (
-                    <div key={stats.namespace.name}>
+                  .map((stats) => ( <div key={stats.namespace.name}>
                       <NamespaceCard
                         namespace={stats.namespace}
                         deploymentCount={stats.deploymentCount}
                         podCount={stats.podCount}
-                        compact={false} // Всегда показываем полный вид
+                        compact={false} />
                       />
                     </div>
                   ))
@@ -462,3 +438,4 @@ export default function NamespaceDashboard() {
     </div>
   );
 }
+
